@@ -1,11 +1,13 @@
+#pragma once
+
 #include "Components.hpp"
 #include "Net.hpp"
 
 class Pin {
     public:
-        Pin(Component* component) : component(component) {}
+        Pin(Component* component) : net(nullptr), component(component), state(State::UNDEFINED) {}
 
-        State getState() {
+        State getState() const {
             return state;
         }
 
@@ -25,7 +27,6 @@ class Driver : public Pin {
             if (state != newState) {
                 net->update(state, newState);
                 state = newState;
-                component->update();
             }
         }
 };
@@ -36,5 +37,6 @@ class Receiver : public Pin {
 
         void setState(State newState) override{
             state = newState;
+            component->update();
         }
 };
