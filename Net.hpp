@@ -10,18 +10,20 @@ enum class State {
 
 class Net {
     public:
-        void addDriver(Pin* pin) {
-            drivers.push_back(pin);
-            driverStateCounts[static_cast<int>(pin->getState())]++;
+        void addDriver(Driver* driver) {
+            drivers.push_back(driver);
+            driverStateCounts[static_cast<int>(driver->getState())]++;
             updateState();
         }
 
-        void addReceiver(Pin* pin) {
-            receivers.push_back(pin);
+        void addReceiver(Receiver* receiver) {
+            receivers.push_back(receiver);
         }
 
         void broadcastStateToReceivers() {
-            TODO!
+            for (Receiver* receiver : receivers) {
+                receiver->setState(state);
+            }
         }
 
         void update(State oldState, State newState) {
@@ -38,61 +40,28 @@ class Net {
 
             // If there are already UNDEFINED drivers, the state is UNDEFINED
             if (driverStateCounts[static_cast<int>(State::UNDEFINED)] > 0) {
-                state = State::UNDEFINED;
+                state = State::UNDEFINED; // X + UNDEFINED = UNDEFINED
                 return;
             }
 
-            // Check LOW and HIGH states
+            // Check LOW states
             if (driverStateCounts[static_cast<int>(State::LOW)] > 0) {
-                state = State::LOW;
+                state = State::LOW; // LOW + FLOATING = LOW
             }
+
+            // Check HIGH states
             if (driverStateCounts[static_cast<int>(State::HIGH)] > 0) {
                 if (state == State::LOW) {
-                    state = State::UNDEFINED; // Conflict between LOW and HIGH drivers results in UNDEFINED state
+                    state = State::UNDEFINED; // LOW + HIGH = UNDEFINED
                 } else {
-                    state = State::HIGH;
+                    state = State::HIGH; // FLOATING + HIGH = HIGH
                 }
             }
         }
 
-        // void updateState() {
-        //     state = State::FLOATING;
-
-        //     // If there are already undefined drivers, the state is undefined
-        //     if (driverStateCounts[static_cast<int>(State::UNDEFINED)] > 0) {
-        //         state = State::UNDEFINED;
-        //         return;
-        //     }
-
-        //     // Only need to check for LOW and HIGH states. If floating, there is no contribution to the state. If there is undefined, it has already been handled.
-        //     for (int i = 0; i < 2; i++) {
-        //         if (driverStateCounts[i] > 0) {
-        //             state = resolveState(state, static_cast<State>(i));
-
-        //             // If the state is undefined, no need to check further
-        //             if (state == State::UNDEFINED) break;
-        //         }
-        //     }
-        // }
-
-        // State resolveState(State state1, State state2) const {
-        //     // If any is undefined, the overall state is undefined
-        //     if (state1 == State::UNDEFINED || state2 == State::UNDEFINED) return State::UNDEFINED;
-
-        //     // If one is floating, the overall state is the other
-        //     if (state1 == State::FLOATING) return state2;
-        //     if (state2 == State::FLOATING) return state1;
-
-        //     // Otherwise, both are either HIGH or LOW, so return that state if they match
-        //     if (state1 == state2) return state1;
-
-        //     // If they differ, the overall state is undefined
-        //     return State::UNDEFINED;
-        // }
-
     private:
-        std::vector<Pin*> drivers;
+        std::vector<Driver*> drivers;
+        std::vector<Receiver*> receivers;
         int driverStateCounts[4] = {0, 0, 0, 0}; // LOW, HIGH, FLOATING, UNDEFINED
-        std::vector<Pin*> receivers;
         State state = State::UNDEFINED;
 };

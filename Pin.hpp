@@ -1,28 +1,40 @@
 #include "Components.hpp"
 #include "Net.hpp"
 
-enum class PinType {
-    INPUT,
-    OUTPUT
-};
-
 class Pin {
     public:
-        Pin(Component* component, PinType type) : component(component), type(type) {
-            state = component->getState();
+        Pin(Component* component) : component(component) {}
+
+        State getState() {
+            return state;
         }
 
-        void setState(State newState) {
+        virtual void setState(State newState) = 0;
+
+    protected:
+        Net* net;
+        Component* component;
+        State state;
+};
+
+class Driver : public Pin {
+    public:
+        Driver(Component* component) : Pin(component) {}
+
+        void setState(State newState) override {
             if (state != newState) {
-                net.update(state, newState);
+                net->update(state, newState);
                 state = newState;
                 component->update();
             }
         }
+};
 
-    private:
-        Net* net;
-        Component* component;
-        PinType type;
-        State state;
+class Receiver : public Pin {
+    public:
+        Receiver(Component* component) : Pin(component) {}
+
+        void setState(State newState) override{
+            state = newState;
+        }
 };
