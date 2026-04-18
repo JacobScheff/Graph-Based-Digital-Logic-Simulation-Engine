@@ -6,6 +6,7 @@
 
 class NotGate : public Component
 {    
+public:
     NotGate() {
         inputs.push_back(new Receiver(this));
         outputs.push_back(new Driver(this));
@@ -31,7 +32,8 @@ class NotGate : public Component
 };
 
 class AndGate : public Component
-{    
+{
+public:
     AndGate() {
         inputs.push_back(new Receiver(this));
         inputs.push_back(new Receiver(this));
@@ -59,7 +61,8 @@ class AndGate : public Component
 };
 
 class NandGate : public Component
-{    
+{
+public:
     NandGate() {
         inputs.push_back(new Receiver(this));
         inputs.push_back(new Receiver(this));
@@ -88,6 +91,7 @@ class NandGate : public Component
 
 class OrGate : public Component
 {    
+public:
     OrGate() {
         inputs.push_back(new Receiver(this));
         inputs.push_back(new Receiver(this));
@@ -116,6 +120,7 @@ class OrGate : public Component
 
 class NorGate : public Component
 {    
+public:
     NorGate() {
         inputs.push_back(new Receiver(this));
         inputs.push_back(new Receiver(this));
@@ -144,6 +149,7 @@ class NorGate : public Component
 
 class XorGate : public Component
 {    
+public:
     XorGate() {
         inputs.push_back(new Receiver(this));
         inputs.push_back(new Receiver(this));
@@ -171,7 +177,8 @@ class XorGate : public Component
 };
 
 class XnorGate : public Component
-{    
+{  
+public:  
     XnorGate() {
         inputs.push_back(new Receiver(this));
         inputs.push_back(new Receiver(this));
