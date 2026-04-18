@@ -1,4 +1,6 @@
+#pragma once
 #include <vector>
+
 #include "Pin.hpp"
 
 class Net

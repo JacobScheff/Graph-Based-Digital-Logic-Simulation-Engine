@@ -1,4 +1,6 @@
+#pragma once
 #include "Net.hpp"
+
 #include <vector>
 #include <map>
 
@@ -6,7 +8,7 @@ class Component
 {
 public:
     virtual ~Component() = default;
-    
+
     // Called by the component to update the state of its drivers after processing changes in its receivers
     virtual void update(Receiver* updatedReceiver) {
         std::map<Receiver*, int>::iterator it = recieverToPinIndex.find(updatedReceiver);
