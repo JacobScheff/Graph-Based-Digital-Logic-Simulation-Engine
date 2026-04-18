@@ -10,18 +10,7 @@ public:
     virtual ~Component() = default;
 
     // Called by the component to update the state of its drivers after processing changes in its receivers
-    virtual void update(Receiver* updatedReceiver) {
-        std::map<Receiver*, int>::iterator it = recieverToPinIndex.find(updatedReceiver);
-
-        if (it != recieverToPinIndex.end()) {
-            int driverIndex = it->second;
-
-            if (driverIndex < pinToDriver.size()) {
-                Driver* driver = pinToDriver[driverIndex];
-                driver->setState(updatedReceiver->getState());
-            }
-        }
-    }
+    virtual void update(Receiver* updatedReceiver) = 0;
 
 protected:    
     std::map<Receiver*, int> recieverToPinIndex;
