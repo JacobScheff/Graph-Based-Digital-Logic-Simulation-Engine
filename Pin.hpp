@@ -15,6 +15,12 @@ class Pin {
     public:
         Pin(Component* component) : net(nullptr), component(component), state(State::UNDEFINED) {}
 
+        ~Pin() {
+            if (net) {
+                net->update(state, State::UNDEFINED);
+            }
+        };
+
         State getState() const {
             return state;
         }
