@@ -25,6 +25,10 @@ class Pin {
             return component;
         }
 
+        void connectToNet(Net* newNet) {
+            net = newNet;
+        }
+
     protected:
         Net* net;
         Component* component;
@@ -37,7 +41,9 @@ class Driver : public Pin {
 
         void setState(State newState) override {
             if (state != newState) {
-                net->update(state, newState);
+                if (net) {
+                    net->update(state, newState);
+                }
                 state = newState;
             }
         }

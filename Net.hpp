@@ -42,7 +42,7 @@ private:
         // FLOATING pins do not affect the state, so start with FLOATING as the default state
         state = State::FLOATING;
 
-        // If there are already UNDEFINED drivers, the state is UNDEFINED
+        // If there are any UNDEFINED drivers, the state is UNDEFINED
         if (driverStateCounts[static_cast<int>(State::UNDEFINED)] > 0)
         {
             state = State::UNDEFINED; // X + UNDEFINED = UNDEFINED
@@ -78,5 +78,5 @@ private:
     std::vector<Driver *> drivers;
     std::vector<Receiver *> receivers;
     int driverStateCounts[4] = {0, 0, 0, 0}; // LOW, HIGH, FLOATING, UNDEFINED
-    State state = State::UNDEFINED;
+    State state = State::FLOATING;
 };
