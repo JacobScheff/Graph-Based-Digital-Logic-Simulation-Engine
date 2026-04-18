@@ -3,6 +3,14 @@
 #include "Components.hpp"
 #include "Net.hpp"
 
+enum class State
+{
+    LOW = 0,
+    HIGH = 1,
+    FLOATING = 2,
+    UNDEFINED = 3
+};
+
 class Pin {
     public:
         Pin(Component* component) : net(nullptr), component(component), state(State::UNDEFINED) {}
@@ -12,6 +20,10 @@ class Pin {
         }
 
         virtual void setState(State newState) = 0;
+
+        Component* getComponent() const {
+            return component;
+        }
 
     protected:
         Net* net;
@@ -35,8 +47,10 @@ class Receiver : public Pin {
     public:
         Receiver(Component* component) : Pin(component) {}
 
-        void setState(State newState) override{
-            state = newState;
-            component->update();
+        void setState(State newState) override {
+            if (state != newState) {
+                state = newState;
+                component->update(this);
+            }
         }
 };

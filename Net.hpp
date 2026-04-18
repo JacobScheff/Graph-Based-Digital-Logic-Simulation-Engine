@@ -1,14 +1,6 @@
 #include <vector>
 #include "Pin.hpp"
 
-enum class State
-{
-    LOW = 0,
-    HIGH = 1,
-    FLOATING = 2,
-    UNDEFINED = 3
-};
-
 class Net
 {
 public:

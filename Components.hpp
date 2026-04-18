@@ -1,30 +1,21 @@
-#include "Pin.hpp"
+#include "Net.hpp"
 #include <vector>
+#include <map>
 
 class Component
 {
 public:
-    virtual void updateState() = 0;
-    virtual State getState() = 0;
-
-    void update() {
-        State newState = getState();
-        if (state != newState) {
-            state = newState;
-            for (Pin* output : outputs) {
-                output->setState(state);
-            }
-        }
+    // Called by the component to update the state of its drivers after processing changes in its receivers
+    virtual void update(Receiver* updatedReceiver) {
+        
     }
 
-private:
-    State state = State::UNDEFINED;
-    std::vector<Pin*> inputs;
-    std::vector<Pin*> outputs;
+private:    
+    std::vector<Component*> components;
 };
 
+// TODO: Implement gates
 class Gate : public Component
 {
-public:
-    Gate(const std::vector<Pin*>& inputs, const std::vector<Pin*>& outputs) : Component(inputs, outputs) {}
+    
 };
