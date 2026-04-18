@@ -47,7 +47,7 @@ public:
         }
     };
 
-    void addInputPort(Receiver* rx, int portIndex) {
+    void addInputPort(Receiver* rx, Driver* tx, int portIndex) {
         if (portIndex < 0 || portIndex > inputSize - 1) {
             throw std::out_of_range("Input port index out of range");
         }
@@ -57,10 +57,11 @@ public:
         }
 
         inputPorts[portIndex].rx = rx;
+        inputPorts[portIndex].tx = tx;
         recieverToInputPinIndex[rx] = portIndex;
     }
 
-    void addOutputPort(Driver* tx, int portIndex) {
+    void addOutputPort(Receiver* rx, Driver* tx, int portIndex) {
         if (portIndex < 0 || portIndex > outputSize - 1) {
             throw std::out_of_range("Output port index out of range");
         }
@@ -69,8 +70,9 @@ public:
             throw std::runtime_error("Output port already occupied");
         }
 
+        outputPorts[portIndex].rx = rx;
         outputPorts[portIndex].tx = tx;
-        driverToOutputPinIndex[tx] = portIndex;
+        receiverToOutputPinIndex[rx] = portIndex;
     }
 
     void addInternalComponent(Component* component) {
@@ -94,7 +96,7 @@ private:
     std::vector<Port> outputPorts;
 
     std::map<Receiver*, int> recieverToInputPinIndex;
-    std::map<Driver*, int> driverToOutputPinIndex;
+    std::map<Receiver*, int> receiverToOutputPinIndex;
 
     std::vector<Component*> internalComponents;
     std::vector<Net*> internalNets;
