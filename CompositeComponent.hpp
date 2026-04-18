@@ -32,18 +32,17 @@ public:
 
     void update(Receiver* updatedReciever) override {
         // Check for external input changes
-        std::map<Receiver*, int>::iterator it = recieverToInputPinIndex.find(updatedReciever);
-        if (it != recieverToInputPinIndex.end()) {
-            Port inputPort = inputPorts[it->second];
+        std::map<Receiver*, int>::iterator externalIt = recieverToInputPinIndex.find(updatedReciever);
+        if (externalIt != recieverToInputPinIndex.end()) {
+            Port inputPort = inputPorts[externalIt->second];
             inputPort.tx->setState(updatedReciever->getState());
         }
 
         // Check for internal output changes
-        for (Port& port : outputPorts) {
-            if (port.rx == updatedReciever) {
-                port.tx->setState(updatedReciever->getState());
-                break;
-            }
+        std::map<Receiver*, int>::iterator internalIt = receiverToOutputPinIndex.find(updatedReciever);
+        if (internalIt != receiverToOutputPinIndex.end()) {
+            Port outputPort = outputPorts[internalIt->second];
+            outputPort.tx->setState(updatedReciever->getState());
         }
     };
 
