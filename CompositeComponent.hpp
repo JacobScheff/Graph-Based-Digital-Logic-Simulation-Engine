@@ -2,6 +2,7 @@
 #include <vector>
 #include <map>
 #include <stdexcept>
+#include <initializer_list>
 
 #include "Components.hpp"
 #include "Net.hpp"
@@ -58,7 +59,7 @@ public:
         inputPorts[portIndex].rx = rx;
         inputPorts[portIndex].tx = tx;
         recieverToInputPinIndex[rx] = portIndex;
-    }
+    };
 
     void addOutputPort(Receiver* rx, Driver* tx, int portIndex) {
         if (portIndex < 0 || portIndex > outputSize - 1) {
@@ -72,15 +73,25 @@ public:
         outputPorts[portIndex].rx = rx;
         outputPorts[portIndex].tx = tx;
         receiverToOutputPinIndex[rx] = portIndex;
-    }
+    };
+
+    CompositeComponent& add(Component* component) {
+        internalComponents.push_back(component);
+        return *this;
+    };
+
+    CompositeComponent& add(Net* net) {
+        internalNets.push_back(net);
+        return *this;
+    };
 
     void addInternalComponent(Component* component) {
-        internalComponents.push_back(component);
-    }
+        add(component);
+    };
 
     void addInternalNet(Net* net) {
-        internalNets.push_back(net);
-    }
+        add(net);
+    };
 
 private:
     int inputSize;
