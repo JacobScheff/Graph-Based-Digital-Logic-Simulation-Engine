@@ -11,7 +11,7 @@ TARGET = main
 TARGET_DEL = main.exe
 
 # Source files
-SRCS = main.cpp
+SRCS = main.cpp Net.cpp Components.cpp
 
 # Object files
 OBJS = $(SRCS:.cpp=.o)
@@ -27,9 +27,9 @@ $(TARGET): $(OBJS)
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Rule to run the executable
+# Rule to run the executable (./ so the shell runs the file in this directory, not PATH)
 run: $(TARGET)
-	$(TARGET)
+	./$(TARGET)
 
 # Clean rule to remove generated files
 clean:

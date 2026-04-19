@@ -1,21 +1,15 @@
 #pragma once
-#include "Pin.hpp"
-
 #include <vector>
 #include <map>
+
+class Pin;
+class Receiver;
+class Driver;
 
 class Component
 {
 public:
-    virtual ~Component() {
-        for (Pin* pin : inputs) {
-            delete pin;
-        }
-
-        for (Pin* pin : outputs) {
-            delete pin;
-        }
-    };
+    virtual ~Component();
 
     // Called by the component to update the state of its drivers after processing changes in its receivers
     virtual void update(Receiver* updatedReceiver) = 0;

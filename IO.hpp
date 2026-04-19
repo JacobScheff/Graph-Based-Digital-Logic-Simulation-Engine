@@ -4,7 +4,6 @@
 #include <stdexcept>
 
 #include "Components.hpp"
-#include "Net.hpp"
 #include "Pin.hpp"
 
 class InputSwitch : public Component {

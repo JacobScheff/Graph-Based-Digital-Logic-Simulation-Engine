@@ -1,7 +1,6 @@
 #include <iostream>
 
 #include "Components.hpp"
-#include "Net.hpp"
 #include "Pin.hpp"
 #include "CompositeComponent.hpp"
 #include "Gates.hpp"

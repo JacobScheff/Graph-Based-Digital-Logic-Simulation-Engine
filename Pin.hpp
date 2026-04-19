@@ -1,21 +1,14 @@
 #pragma once
 
+#include "State.hpp"
 #include "Components.hpp"
 #include "Net.hpp"
-
-enum class State
-{
-    LOW = 0,
-    HIGH = 1,
-    FLOATING = 2,
-    UNDEFINED = 3
-};
 
 class Pin {
     public:
         Pin(Component* component) : net(nullptr), component(component), state(State::UNDEFINED) {}
 
-        ~Pin() {
+        virtual ~Pin() {
             if (net) {
                 net->update(state, State::UNDEFINED);
             }
