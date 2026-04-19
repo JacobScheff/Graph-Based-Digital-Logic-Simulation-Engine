@@ -4,6 +4,12 @@
 #include "Components.hpp"
 #include "Net.hpp"
 
+enum class PinType {
+    UNDETERMINED,
+    DRIVER,
+    RECEIVER
+};
+
 class Pin {
     public:
         Pin(Component* component) : net(nullptr), component(component), state(State::UNDEFINED) {}
@@ -28,15 +34,22 @@ class Pin {
             net = newNet;
         }
 
+        PinType getType() const {
+            return type;
+        }
+
     protected:
         Net* net;
         Component* component;
         State state;
+        PinType type = PinType::UNDETERMINED;
 };
 
 class Driver : public Pin {
     public:
-        Driver(Component* component) : Pin(component) {}
+        Driver(Component* component) : Pin(component) {
+            type = PinType::DRIVER;
+        }
 
         void setState(State newState) override {
             if (state != newState) {
@@ -50,7 +63,9 @@ class Driver : public Pin {
 
 class Receiver : public Pin {
     public:
-        Receiver(Component* component) : Pin(component) {}
+        Receiver(Component* component) : Pin(component) {
+            type = PinType::RECEIVER;
+        }
 
         void setState(State newState) override {
             if (state != newState) {

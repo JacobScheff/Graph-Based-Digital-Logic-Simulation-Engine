@@ -1,16 +1,18 @@
 #include "Net.hpp"
 #include "Pin.hpp"
 
-void Net::addDriver(Driver *driver)
+void Net::addPin(Pin *pin)
 {
-    drivers.push_back(driver);
-    driverStateCounts[static_cast<int>(driver->getState())]++;
-    updateState();
-}
-
-void Net::addReceiver(Receiver *receiver)
-{
-    receivers.push_back(receiver);
+    if (pin->getType() == PinType::DRIVER)
+    {
+        drivers.push_back(static_cast<Driver *>(pin));
+        driverStateCounts[static_cast<int>(pin->getState())]++;
+        updateState();
+    }
+    else if (pin->getType() == PinType::RECEIVER)
+    {
+        receivers.push_back(static_cast<Receiver *>(pin));
+    }
 }
 
 void Net::update(State oldState, State newState)

@@ -9,9 +9,7 @@ class Receiver;
 class Net
 {
 public:
-    void addDriver(Driver *driver);
-
-    void addReceiver(Receiver *receiver);
+    void addPin(Pin* pin);
 
     void update(State oldState, State newState);
 
