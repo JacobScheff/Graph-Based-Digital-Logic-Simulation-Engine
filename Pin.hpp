@@ -1,76 +1,69 @@
 #pragma once
-
 #include "State.hpp"
-#include "Components.hpp"
-#include "Net.hpp"
 
-enum class PinType {
-    UNDETERMINED,
-    DRIVER,
-    RECEIVER
+class Net;
+class Component;
+
+// ─── Base ─────────────────────────────────────────────────────────────────────
+
+class Pin
+{
+public:
+    virtual ~Pin() = default;
+    Net*  getNet()       const { return net; }
+    bool  isConnected()  const { return net != nullptr; }
+    virtual State getState() const = 0;
+
+    int   getWidth()     const { return width; }
+    void  setWidth(int w)      { if (w >= 1) width = w; }
+
+protected:
+    Net* net = nullptr;
+    int  width = 1;
 };
 
-class Pin {
-    public:
-        Pin(Component* component) : net(nullptr), component(component), state(State::UNDEFINED) {}
+// ─── Driver ───────────────────────────────────────────────────────────────────
+// An output pin.  Drives a net with a specific logic state.
 
-        virtual ~Pin() {
-            if (net) {
-                net->update(state, State::UNDEFINED);
-            }
-        };
+class Driver : public Pin
+{
+public:
+    explicit Driver(Component* owner);
+    ~Driver() override;
 
-        State getState() const {
-            return state;
-        }
+    void  connect(Net* net);
+    void  disconnect();
 
-        virtual void setState(State newState) = 0;
+    // Update the driven state and propagate through the net
+    void  setState(State newState);
+    State getState() const override { return state; }
 
-        Component* getComponent() const {
-            return component;
-        }
-
-        void connectToNet(Net* newNet) {
-            net = newNet;
-        }
-
-        PinType getType() const {
-            return type;
-        }
-
-    protected:
-        Net* net;
-        Component* component;
-        State state;
-        PinType type = PinType::UNDETERMINED;
+private:
+    Component* owner;
+    State      state = State::FLOATING;
 };
 
-class Driver : public Pin {
-    public:
-        Driver(Component* component) : Pin(component) {
-            type = PinType::DRIVER;
-        }
+// ─── Receiver ─────────────────────────────────────────────────────────────────
+// An input pin.  Reads the net state and tells the owner component to
+// reschedule itself on the timing wheel when the net changes.
 
-        void setState(State newState) override {
-            if (state != newState) {
-                if (net) {
-                    net->update(state, newState);
-                }
-                state = newState;
-            }
-        }
-};
+class Receiver : public Pin
+{
+public:
+    Receiver(Component* owner, int propagationDelay = 1);
+    ~Receiver() override;
 
-class Receiver : public Pin {
-    public:
-        Receiver(Component* component) : Pin(component) {
-            type = PinType::RECEIVER;
-        }
+    void  connect(Net* net);
+    void  disconnect();
 
-        void setState(State newState) override {
-            if (state != newState) {
-                state = newState;
-                component->update(this);
-            }
-        }
+    State getState() const override;
+
+    // Called by Net::recomputeState when the net's resolved state changes
+    void onNetChanged(State oldState, State newState);
+
+    int getPropagationDelay() const { return propagationDelay; }
+
+private:
+    Component* owner;
+    int        propagationDelay;
 };

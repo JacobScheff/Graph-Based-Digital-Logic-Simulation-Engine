@@ -1,74 +1,68 @@
 #include "Net.hpp"
 #include "Pin.hpp"
+#include <algorithm>
 
-void Net::addPin(Pin *pin)
+Net::Net(std::string name) : name(std::move(name)) {}
+
+// ─── Driver registration ──────────────────────────────────────────────────────
+
+void Net::addDriver(Driver* d)
 {
-    if (pin->getType() == PinType::DRIVER)
-    {
-        drivers.push_back(static_cast<Driver *>(pin));
-        driverStateCounts[static_cast<int>(pin->getState())]++;
-        updateState();
-    }
-    else if (pin->getType() == PinType::RECEIVER)
-    {
-        receivers.push_back(static_cast<Receiver *>(pin));
-    }
+    drivers.push_back(d);
+    counts[static_cast<int>(d->getState())]++;
+    recomputeState();
 }
 
-void Net::update(State oldState, State newState)
+void Net::removeDriver(Driver* d)
 {
-    if (oldState != newState)
-    {
-        driverStateCounts[static_cast<int>(oldState)]--;
-        driverStateCounts[static_cast<int>(newState)]++;
-        updateState();
-    }
+    counts[static_cast<int>(d->getState())]--;
+    drivers.erase(std::remove(drivers.begin(), drivers.end(), d), drivers.end());
+    recomputeState();
 }
 
-void Net::broadcastStateToReceivers()
+// ─── Receiver registration ────────────────────────────────────────────────────
+
+void Net::addReceiver(Receiver* r)
 {
-    for (Receiver *receiver : receivers)
-    {
-        receiver->setState(state);
-    }
+    receivers.push_back(r);
 }
 
-void Net::updateState()
+void Net::removeReceiver(Receiver* r)
 {
-    State prevState = state;
+    receivers.erase(std::remove(receivers.begin(), receivers.end(), r), receivers.end());
+}
 
-    // FLOATING pins do not affect the state, so start with FLOATING as the default state
-    state = State::FLOATING;
+// ─── State update ─────────────────────────────────────────────────────────────
 
-    // If there are any UNDEFINED drivers, the state is UNDEFINED
-    if (driverStateCounts[static_cast<int>(State::UNDEFINED)] > 0)
-    {
-        state = State::UNDEFINED; // X + UNDEFINED = UNDEFINED
-        return;
+void Net::onDriverChanged(State oldState, State newState)
+{
+    counts[static_cast<int>(oldState)]--;
+    counts[static_cast<int>(newState)]++;
+    recomputeState();
+}
+
+void Net::recomputeState()
+{
+    State prev = state;
+
+    // Priority: UNDEFINED > contention(H+L) > HIGH > LOW > FLOATING
+    if (counts[static_cast<int>(State::UNDEFINED)] > 0) {
+        state = State::UNDEFINED;
+    } else if (counts[static_cast<int>(State::HIGH)] > 0 &&
+               counts[static_cast<int>(State::LOW)]  > 0) {
+        state = State::UNDEFINED;   // bus contention
+    } else if (counts[static_cast<int>(State::HIGH)] > 0) {
+        state = State::HIGH;
+    } else if (counts[static_cast<int>(State::LOW)] > 0) {
+        state = State::LOW;
+    } else {
+        state = State::FLOATING;
     }
 
-    // Check LOW states
-    if (driverStateCounts[static_cast<int>(State::LOW)] > 0)
-    {
-        state = State::LOW; // LOW + FLOATING = LOW
-    }
-
-    // Check HIGH states
-    if (driverStateCounts[static_cast<int>(State::HIGH)] > 0)
-    {
-        if (state == State::LOW)
-        {
-            state = State::UNDEFINED; // LOW + HIGH = UNDEFINED
-        }
-        else
-        {
-            state = State::HIGH; // FLOATING + HIGH = HIGH
-        }
-    }
-
-    // If the state changed, broadcast the new state to all receivers
-    if (state != prevState)
-    {
-        broadcastStateToReceivers();
+    if (state != prev) {
+        for (Receiver* r : receivers)
+            r->onNetChanged(prev, state);
+        if (onStateChange)
+            onStateChange(this);
     }
 }
