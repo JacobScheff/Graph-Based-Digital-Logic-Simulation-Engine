@@ -12,10 +12,10 @@ ImU32 Canvas::stateColor(State s) const
 {
     if (sim) return stateColorRail(s, *sim);
     switch (s) {
-        case State::LOW:       return IM_COL32( 33, 150, 243, 255);
-        case State::HIGH:      return IM_COL32( 76, 175,  80, 255);
-        case State::FLOATING:  return IM_COL32(120, 120, 120, 255);
-        case State::UNDEFINED: return IM_COL32(244,  67,  54, 255);
+        case State::LOW:       return IM_COL32( 64, 140, 230, 255);
+        case State::HIGH:      return IM_COL32( 76, 185,  80, 255);
+        case State::FLOATING:  return IM_COL32(115, 115, 125, 255);
+        case State::UNDEFINED: return IM_COL32(235,  75,  65, 255);
     }
     return IM_COL32(255,255,255,255);
 }
@@ -961,7 +961,7 @@ std::vector<ImVec2> Canvas::routeWire(ImVec2 src, ImVec2 dst, const Endpoint& sr
 
 void Canvas::drawGrid(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
 {
-    ImU32 col = IM_COL32(55, 55, 68, 180); // sleek modern gray dots
+    ImU32 col = IM_COL32(40, 40, 52, 120);
     ImVec2 wMin = s2w(origin, origin);
     ImVec2 wMax = s2w({origin.x+size.x, origin.y+size.y}, origin);
 
@@ -975,7 +975,7 @@ void Canvas::drawGrid(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
         for (float wy = startY; wy <= wMax.y; wy += GRID) {
             ImVec2 p = w2s({wx, wy}, origin);
             if (p.y >= topY && p.y <= botY) {
-                dl->AddCircleFilled(p, 1.2f * zoom, col);
+                dl->AddCircleFilled(p, 1.0f * zoom, col);
             }
         }
     }
@@ -987,10 +987,10 @@ void Canvas::drawRails(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
     float gndY = origin.y + size.y - RAIL_BAND * 0.5f;
 
     dl->AddRectFilled(origin, {origin.x + size.x, origin.y + RAIL_BAND},
-                      IM_COL32(20, 28, 20, 255));
+                      IM_COL32(18, 30, 20, 255));
     dl->AddRectFilled({origin.x, origin.y + size.y - RAIL_BAND},
                       {origin.x + size.x, origin.y + size.y},
-                      IM_COL32(15, 20, 32, 255));
+                      IM_COL32(14, 20, 34, 255));
 
     State vddSt = sim->getVddNet()->getState();
     State gndSt = sim->getGndNet()->getState();
@@ -1071,12 +1071,12 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     ImVec2 tl = w2s(cv.pos, origin);
     ImVec2 br = w2s({cv.pos.x + cv.size.x, cv.pos.y + cv.size.y}, origin);
 
-    ImU32 bodyCol   = IM_COL32(23, 23, 31, 255); // #17171F modern deep cardbg
-    ImU32 borderCol = cv.selected ? IM_COL32(99, 102, 241, 255) // Indigo
-                                  : IM_COL32(42, 43, 54, 255);  // #2A2B36 sleek border
+    ImU32 bodyCol   = IM_COL32(26, 26, 36, 255);
+    ImU32 borderCol = cv.selected ? IM_COL32(110, 115, 250, 255)
+                                  : IM_COL32(50, 52, 66, 255);
     float rounding = 6.f * zoom;
     dl->AddRectFilled(tl, br, bodyCol, rounding);
-    dl->AddRect      (tl, br, borderCol, rounding, 0, cv.selected ? 2.f : 1.f);
+    dl->AddRect      (tl, br, borderCol, rounding, 0, cv.selected ? 2.5f : 1.5f);
 
     float fontSize = 13.f * zoom;
 
@@ -1110,7 +1110,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         float scale   = fontSize / ImGui::GetFontSize();
         dl->AddText(ImGui::GetFont(), fontSize,
                     { centre.x - ts.x * scale * .5f, centre.y - ts.y * scale * .5f },
-                    IM_COL32(210, 215, 230, 255), cv.typeName.c_str());
+                    IM_COL32(220, 225, 240, 255), cv.typeName.c_str());
     }
 
     if (cv.typeName == "LED") {
@@ -1158,7 +1158,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
                 textPos = { edge.x + 3.f * zoom, edge.y - ts.y * sc * 0.5f };
             }
             dl->AddText(ImGui::GetFont(), fontSize * .75f, textPos,
-                        IM_COL32(180,180,180,200), lbl);
+                        IM_COL32(160,165,180,220), lbl);
         }
     }
 
@@ -1185,7 +1185,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             float sc = fontSize / ImGui::GetFontSize() * 0.75f;
             dl->AddText(ImGui::GetFont(), fontSize * .75f,
                         { edge.x - ts.x * sc - 3.f, edge.y - ts.y * sc * .5f },
-                        IM_COL32(180,180,180,200), lbl);
+                        IM_COL32(160,165,180,220), lbl);
         }
     }
 
@@ -1246,7 +1246,7 @@ void Canvas::drawAllWires(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
             st = wv.net->getState();
 
         ImU32 col = stateColor(st);
-        float lw  = wv.busWidth > 1 ? 4.f * zoom : 2.f * zoom;
+        float lw  = wv.busWidth > 1 ? 4.f * zoom : 2.2f * zoom;
 
         if (wv.selected) {
             for (size_t i = 1; i < pts.size(); ++i) {
@@ -1292,8 +1292,8 @@ void Canvas::drawPlacementGhost(ImDrawList* dl, ImVec2 origin, ImVec2 mouseSS) c
     ImVec2 size = getComponentSize(pendingType, pendingBusWidth);
     ImVec2 tl = w2s(wPos, origin);
     ImVec2 br = w2s({wPos.x + size.x, wPos.y + size.y}, origin);
-    dl->AddRectFilled(tl, br, IM_COL32(99, 102, 241, 50), 6.f*zoom);
-    dl->AddRect(tl, br, IM_COL32(129, 140, 248, 180), 6.f*zoom, 0, 1.5f);
+    dl->AddRectFilled(tl, br, IM_COL32(99, 102, 241, 65), 6.f*zoom);
+    dl->AddRect(tl, br, IM_COL32(130, 140, 250, 200), 6.f*zoom, 0, 1.5f);
 }
 
 void Canvas::render()
@@ -1314,7 +1314,7 @@ void Canvas::render()
     dl->PushClipRect(origin, {origin.x+size.x, origin.y+size.y}, true);
 
     dl->AddRectFilled(origin, {origin.x+size.x, origin.y+size.y},
-                      IM_COL32(18, 18, 26, 255));
+                      IM_COL32(16, 16, 22, 255));
     drawGrid(dl, origin, size);
     drawRails(dl, origin, size);
 

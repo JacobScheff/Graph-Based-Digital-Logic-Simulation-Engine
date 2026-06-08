@@ -22,6 +22,7 @@ private:
     double lastTime     = 0.0;
     float  simSpeedTPS  = 1000.f;  // ticks per second
     bool   simRunning   = false;
+    bool   layoutInitialized = false;
 
     int         pendingBusWidth = 4;
     bool        showBusWidthPopup = false;
@@ -36,6 +37,7 @@ private:
     void renderProperties();
     void renderSimControls();
     void renderCanvas();
+    void buildDefaultLayout(ImGuiID dockId);
 
     static void applyDarkTheme();
     static void glfwErrorCallback(int, const char*);
