@@ -37,16 +37,14 @@ static inline State invert(State s)
     return State::UNDEFINED;
 }
 
-#define SIM() (*getSimulator())
-
 // ─── NOT Gate ─────────────────────────────────────────────────────────────────
 class NotGate : public Component
 {
 public:
-    NotGate() : Component("NOT", 1, 1) {}
+    NotGate() : Component("NOT", 3, 1) {}
     void update() override {
         if (!getSimulator()) return;
-        drivers[0]->setState(invertRail(receivers[0]->getState(), SIM()));
+        drivers[0]->setState(invertRail(receivers[0]->getState(), *this));
     }
 };
 
@@ -54,13 +52,13 @@ public:
 class Buffer : public Component
 {
 public:
-    Buffer() : Component("BUF", 1, 1) {}
+    Buffer() : Component("BUF", 3, 1) {}
     void update() override {
         if (!getSimulator()) return;
         State s = receivers[0]->getState();
-        if (readAsTrue(s, SIM()))       drivers[0]->setState(driveTrue(SIM()));
-        else if (readAsFalse(s, SIM())) drivers[0]->setState(driveFalse(SIM()));
-        else                            drivers[0]->setState(s);
+        if (readAsTrue(s, *this))       drivers[0]->setState(driveTrue(*this));
+        else if (readAsFalse(s, *this)) drivers[0]->setState(driveFalse(*this));
+        else                            drivers[0]->setState(State::UNDEFINED);
     }
 };
 
@@ -68,11 +66,11 @@ public:
 class AndGate : public Component
 {
 public:
-    AndGate() : Component("AND", 2, 1) {}
+    AndGate() : Component("AND", 4, 1) {}
     void update() override {
         if (!getSimulator()) return;
         drivers[0]->setState(resolveAndRail(receivers[0]->getState(),
-                                            receivers[1]->getState(), SIM()));
+                                            receivers[1]->getState(), *this));
     }
 };
 
@@ -80,12 +78,12 @@ public:
 class NandGate : public Component
 {
 public:
-    NandGate() : Component("NAND", 2, 1) {}
+    NandGate() : Component("NAND", 4, 1) {}
     void update() override {
         if (!getSimulator()) return;
         drivers[0]->setState(invertRail(
             resolveAndRail(receivers[0]->getState(),
-                           receivers[1]->getState(), SIM()), SIM()));
+                           receivers[1]->getState(), *this), *this));
     }
 };
 
@@ -93,11 +91,11 @@ public:
 class OrGate : public Component
 {
 public:
-    OrGate() : Component("OR", 2, 1) {}
+    OrGate() : Component("OR", 4, 1) {}
     void update() override {
         if (!getSimulator()) return;
         drivers[0]->setState(resolveOrRail(receivers[0]->getState(),
-                                           receivers[1]->getState(), SIM()));
+                                           receivers[1]->getState(), *this));
     }
 };
 
@@ -105,12 +103,12 @@ public:
 class NorGate : public Component
 {
 public:
-    NorGate() : Component("NOR", 2, 1) {}
+    NorGate() : Component("NOR", 4, 1) {}
     void update() override {
         if (!getSimulator()) return;
         drivers[0]->setState(invertRail(
             resolveOrRail(receivers[0]->getState(),
-                          receivers[1]->getState(), SIM()), SIM()));
+                          receivers[1]->getState(), *this), *this));
     }
 };
 
@@ -118,11 +116,11 @@ public:
 class XorGate : public Component
 {
 public:
-    XorGate() : Component("XOR", 2, 1) {}
+    XorGate() : Component("XOR", 4, 1) {}
     void update() override {
         if (!getSimulator()) return;
         drivers[0]->setState(resolveXorRail(receivers[0]->getState(),
-                                            receivers[1]->getState(), SIM()));
+                                            receivers[1]->getState(), *this));
     }
 };
 
@@ -130,13 +128,11 @@ public:
 class XnorGate : public Component
 {
 public:
-    XnorGate() : Component("XNOR", 2, 1) {}
+    XnorGate() : Component("XNOR", 4, 1) {}
     void update() override {
         if (!getSimulator()) return;
         drivers[0]->setState(invertRail(
             resolveXorRail(receivers[0]->getState(),
-                           receivers[1]->getState(), SIM()), SIM()));
+                           receivers[1]->getState(), *this), *this));
     }
 };
-
-#undef SIM

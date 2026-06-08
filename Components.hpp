@@ -28,8 +28,8 @@ public:
     void scheduleUpdate(int delay);
 
     // ── Pin accessors ──────────────────────────────────────────────────────
-    Driver*   getDriver(int i)   { return drivers[i];   }
-    Receiver* getReceiver(int i) { return receivers[i]; }
+    Driver*   getDriver(int i)   { return (i >= 0 && i < static_cast<int>(drivers.size())) ? drivers[i] : nullptr;   }
+    Receiver* getReceiver(int i) { return (i >= 0 && i < static_cast<int>(receivers.size())) ? receivers[i] : nullptr; }
     int       numDrivers()   const { return static_cast<int>(drivers.size());   }
     int       numReceivers() const { return static_cast<int>(receivers.size()); }
 

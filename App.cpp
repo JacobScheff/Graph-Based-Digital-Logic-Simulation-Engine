@@ -175,10 +175,10 @@ void App::renderPalette()
     ImGui::Begin("Components");
 
     auto paletteBtn = [&](const char* label, const char* type, const char* tip) {
-        ImGui::PushStyleColor(ImGuiCol_Button,        IM_COL32(38, 40, 60, 255));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(60, 62, 90, 255));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(80, 82,120, 255));
-        if (ImGui::Button(label, {-1.f, 0.f}))
+        ImGui::PushStyleColor(ImGuiCol_Button,        IM_COL32(31, 31, 41, 255));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(49, 46, 129, 255)); // Indigo hover
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(67, 56, 202, 255)); // Active
+        if (ImGui::Button(label, {-1.f, 26.f}))
             canvas.beginPlacement(type);
         ImGui::PopStyleColor(3);
         if (ImGui::IsItemHovered() && tip)
@@ -186,10 +186,10 @@ void App::renderPalette()
     };
 
     auto busPaletteBtn = [&](const char* label, const char* type, const char* tip) {
-        ImGui::PushStyleColor(ImGuiCol_Button,        IM_COL32(38, 40, 60, 255));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(60, 62, 90, 255));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(80, 82,120, 255));
-        if (ImGui::Button(label, {-1.f, 0.f})) {
+        ImGui::PushStyleColor(ImGuiCol_Button,        IM_COL32(31, 31, 41, 255));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(49, 46, 129, 255));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(67, 56, 202, 255));
+        if (ImGui::Button(label, {-1.f, 26.f})) {
             pendingBusType = type;
             showBusWidthPopup = true;
         }
@@ -198,37 +198,50 @@ void App::renderPalette()
             ImGui::SetTooltip("%s", tip);
     };
 
-    ImGui::SeparatorText("Gates");
-    paletteBtn("NOT",  "NOT",  "Inverter – 1 in, 1 out");
-    paletteBtn("BUF",  "BUF",  "Buffer  – 1 in, 1 out");
-    paletteBtn("AND",  "AND",  "AND gate");
-    paletteBtn("NAND", "NAND", "NAND gate");
-    paletteBtn("OR",   "OR",   "OR gate");
-    paletteBtn("NOR",  "NOR",  "NOR gate");
-    paletteBtn("XOR",  "XOR",  "XOR gate");
-    paletteBtn("XNOR", "XNOR","XNOR gate");
+    if (ImGui::CollapsingHeader("Logic Gates", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Spacing();
+        paletteBtn("NOT",  "NOT",  "Inverter – 1 in, 1 out");
+        paletteBtn("BUF",  "BUF",  "Buffer  – 1 in, 1 out");
+        paletteBtn("AND",  "AND",  "AND gate");
+        paletteBtn("NAND", "NAND", "NAND gate");
+        paletteBtn("OR",   "OR",   "OR gate");
+        paletteBtn("NOR",  "NOR",  "NOR gate");
+        paletteBtn("XOR",  "XOR",  "XOR gate");
+        paletteBtn("XNOR", "XNOR", "XNOR gate");
+        ImGui::Spacing();
+    }
 
-    ImGui::SeparatorText("Sources");
-    ImGui::TextDisabled("VDD/GND: top/bottom rails");
-    paletteBtn("Switch", "SW",     "Toggle switch (click on canvas)");
-    paletteBtn("Button", "BTN",    "Momentary button (click on canvas)");
-    paletteBtn("Clock",  "CLK",    "Oscillator – freq set in Properties");
-    paletteBtn("Num In", "NUM_IN", "4-bit numeric input (click to cycle)");
+    if (ImGui::CollapsingHeader("Inputs / Sources", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Spacing();
+        paletteBtn("Switch", "SW",     "Toggle switch (click on canvas)");
+        paletteBtn("Button", "BTN",    "Momentary button (click on canvas)");
+        paletteBtn("Clock",  "CLK",    "Oscillator – freq set in Properties");
+        paletteBtn("Num In", "NUM_IN", "4-bit numeric input (click to cycle)");
+        ImGui::Spacing();
+    }
 
-    ImGui::SeparatorText("Bus");
-    busPaletteBtn("Bus Merge", "BUS_MERGE", "N x 1-bit → N-bit bus");
-    busPaletteBtn("Bus Split", "BUS_SPLIT", "N-bit bus → N x 1-bit");
-    paletteBtn("Junction", "JUNCTION", "Wire pass-through node");
+    if (ImGui::CollapsingHeader("Wiring / Bus", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Spacing();
+        busPaletteBtn("Bus Merge", "BUS_MERGE", "N x 1-bit → N-bit bus");
+        busPaletteBtn("Bus Split", "BUS_SPLIT", "N-bit bus → N x 1-bit");
+        paletteBtn("Junction", "JUNCTION", "Wire pass-through node");
+        ImGui::Spacing();
+    }
 
-    ImGui::SeparatorText("Outputs");
-    paletteBtn("LED",      "LED",      "Single-bit LED indicator");
-    paletteBtn("Num Disp", "NUM_DISP", "4-bit numeric display (0–15)");
+    if (ImGui::CollapsingHeader("Outputs", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Spacing();
+        paletteBtn("LED",      "LED",      "Single-bit LED indicator");
+        paletteBtn("Num Disp", "NUM_DISP", "4-bit numeric display (0–15)");
+        ImGui::Spacing();
+    }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Click to place");
-    ImGui::TextDisabled("Shift+click = keep placing");
-    ImGui::TextDisabled("Right-click wire = junction");
-    ImGui::TextDisabled("Del = delete selected");
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextDisabled("Shift+Click = Keep placing");
+    ImGui::TextDisabled("R-Click Wire = Junction");
+    ImGui::TextDisabled("Drag Canvas = Pan");
+    ImGui::TextDisabled("Scroll Canvas = Zoom");
 
     ImGui::End();
 }
@@ -254,15 +267,49 @@ void App::renderProperties()
 
     Component*         comp = canvas.getSelectedComponent();
     const std::string& type = canvas.getSelectedTypeName();
-
-    if (!comp) {
-        ImGui::TextDisabled("(nothing selected)");
+    bool               hasSel = canvas.hasSelection();
+ 
+    if (hasSel) {
+        ImGui::SeparatorText("Selection");
+        int compCount = canvas.getSelectedComponentCount();
+        int wireCount = canvas.getSelectedWireCount();
+        int juncCount = canvas.getSelectedJunctionCount();
+        
+        if (compCount > 0) ImGui::Text("Components: %d", compCount);
+        if (wireCount > 0) ImGui::Text("Wires: %d", wireCount);
+        if (juncCount > 0) ImGui::Text("Junctions: %d", juncCount);
+        
         ImGui::Spacing();
-        ImGui::SeparatorText("Power Rails");
-        ImGui::TextColored({0.3f,0.69f,0.31f,1.f}, "VDD: %s",
-            stateLabel(sim.getVddNet()->getState(), sim));
-        ImGui::TextColored({0.13f,0.59f,0.95f,1.f}, "GND: %s",
-            stateLabel(sim.getGndNet()->getState(), sim));
+        ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(239, 68, 68, 200));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(220, 38, 38, 255));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(185, 28, 28, 255));
+        if (ImGui::Button("Delete Selected", {-1.f, 32.f})) {
+            canvas.deleteSelected();
+            canvas.settle();
+            comp = nullptr;
+            hasSel = false;
+        }
+        ImGui::PopStyleColor(3);
+        if (hasSel) {
+            if (ImGui::Button("Clear Selection", {-1.f, 26.f})) {
+                canvas.clearSelection();
+                comp = nullptr;
+                hasSel = false;
+            }
+        }
+        ImGui::Spacing();
+    }
+ 
+    if (!comp) {
+        if (!hasSel) {
+            ImGui::TextDisabled("(nothing selected)");
+            ImGui::Spacing();
+            ImGui::SeparatorText("Power Rails");
+            ImGui::TextColored({0.3f,0.69f,0.31f,1.f}, "VDD: %s",
+                stateLabel(sim.getVddNet()->getState(), sim));
+            ImGui::TextColored({0.13f,0.59f,0.95f,1.f}, "GND: %s",
+                stateLabel(sim.getGndNet()->getState(), sim));
+        }
         ImGui::End();
         return;
     }
@@ -414,37 +461,37 @@ void App::applyDarkTheme()
 {
     ImGui::StyleColorsDark();
     ImGuiStyle& s = ImGui::GetStyle();
-    s.WindowRounding    = 6.f;
+    s.WindowRounding    = 8.f;
     s.FrameRounding     = 4.f;
     s.GrabRounding      = 4.f;
     s.TabRounding       = 4.f;
     s.WindowBorderSize  = 1.f;
     s.FrameBorderSize   = 0.f;
-    s.WindowPadding     = {10.f, 10.f};
-    s.FramePadding      = { 6.f,  4.f};
+    s.WindowPadding     = {12.f, 12.f};
+    s.FramePadding      = { 6.f,  5.f};
     s.ItemSpacing       = { 8.f,  6.f};
 
     auto& c = s.Colors;
-    c[ImGuiCol_WindowBg]          = ImVec4(0.11f, 0.11f, 0.17f, 1.f);
-    c[ImGuiCol_ChildBg]           = ImVec4(0.08f, 0.08f, 0.12f, 1.f);
-    c[ImGuiCol_PopupBg]           = ImVec4(0.13f, 0.13f, 0.19f, 1.f);
-    c[ImGuiCol_Border]            = ImVec4(0.28f, 0.28f, 0.40f, 0.7f);
-    c[ImGuiCol_FrameBg]           = ImVec4(0.16f, 0.16f, 0.24f, 1.f);
-    c[ImGuiCol_FrameBgHovered]    = ImVec4(0.22f, 0.22f, 0.34f, 1.f);
-    c[ImGuiCol_TitleBg]           = ImVec4(0.08f, 0.08f, 0.13f, 1.f);
-    c[ImGuiCol_TitleBgActive]     = ImVec4(0.13f, 0.13f, 0.22f, 1.f);
-    c[ImGuiCol_Header]            = ImVec4(0.22f, 0.22f, 0.38f, 1.f);
-    c[ImGuiCol_HeaderHovered]     = ImVec4(0.30f, 0.30f, 0.50f, 1.f);
-    c[ImGuiCol_Button]            = ImVec4(0.22f, 0.22f, 0.38f, 1.f);
-    c[ImGuiCol_ButtonHovered]     = ImVec4(0.30f, 0.30f, 0.52f, 1.f);
-    c[ImGuiCol_ButtonActive]      = ImVec4(0.38f, 0.38f, 0.62f, 1.f);
-    c[ImGuiCol_Tab]               = ImVec4(0.13f, 0.13f, 0.22f, 1.f);
-    c[ImGuiCol_TabHovered]        = ImVec4(0.28f, 0.28f, 0.50f, 1.f);
-    c[ImGuiCol_TabActive]         = ImVec4(0.22f, 0.22f, 0.40f, 1.f);
-    c[ImGuiCol_SliderGrab]        = ImVec4(0.40f, 0.40f, 0.70f, 1.f);
-    c[ImGuiCol_SliderGrabActive]  = ImVec4(0.55f, 0.55f, 0.90f, 1.f);
-    c[ImGuiCol_CheckMark]         = ImVec4(0.55f, 0.55f, 0.90f, 1.f);
-    c[ImGuiCol_SeparatorHovered]  = ImVec4(0.40f, 0.40f, 0.70f, 1.f);
-    c[ImGuiCol_SeparatorActive]   = ImVec4(0.55f, 0.55f, 0.90f, 1.f);
-    c[ImGuiCol_DockingPreview]    = ImVec4(0.45f, 0.45f, 0.80f, 0.7f);
+    c[ImGuiCol_WindowBg]          = ImVec4(0.08f, 0.08f, 0.10f, 1.f); // deep dark navy-black #0D0D10
+    c[ImGuiCol_ChildBg]           = ImVec4(0.06f, 0.06f, 0.08f, 1.f);
+    c[ImGuiCol_PopupBg]           = ImVec4(0.10f, 0.10f, 0.14f, 1.f);
+    c[ImGuiCol_Border]            = ImVec4(0.18f, 0.18f, 0.24f, 0.8f); // sleek borders #2E2E3E
+    c[ImGuiCol_FrameBg]           = ImVec4(0.12f, 0.12f, 0.17f, 1.f);
+    c[ImGuiCol_FrameBgHovered]    = ImVec4(0.18f, 0.18f, 0.25f, 1.f);
+    c[ImGuiCol_TitleBg]           = ImVec4(0.06f, 0.06f, 0.08f, 1.f);
+    c[ImGuiCol_TitleBgActive]     = ImVec4(0.08f, 0.08f, 0.10f, 1.f);
+    c[ImGuiCol_Header]            = ImVec4(0.15f, 0.15f, 0.25f, 1.f);
+    c[ImGuiCol_HeaderHovered]     = ImVec4(0.25f, 0.25f, 0.45f, 1.f);
+    c[ImGuiCol_Button]            = ImVec4(0.15f, 0.15f, 0.22f, 1.f);
+    c[ImGuiCol_ButtonHovered]     = ImVec4(0.24f, 0.23f, 0.53f, 1.f); // Indigo hover #3E3B87
+    c[ImGuiCol_ButtonActive]      = ImVec4(0.31f, 0.29f, 0.71f, 1.f); // Indigo active #4F4AB5
+    c[ImGuiCol_Tab]               = ImVec4(0.08f, 0.08f, 0.12f, 1.f);
+    c[ImGuiCol_TabHovered]        = ImVec4(0.24f, 0.23f, 0.53f, 1.f);
+    c[ImGuiCol_TabActive]         = ImVec4(0.18f, 0.18f, 0.30f, 1.f);
+    c[ImGuiCol_SliderGrab]        = ImVec4(0.38f, 0.36f, 0.85f, 1.f); // Indigo accent grab #615CD9
+    c[ImGuiCol_SliderGrabActive]  = ImVec4(0.48f, 0.45f, 0.95f, 1.f);
+    c[ImGuiCol_CheckMark]         = ImVec4(0.38f, 0.36f, 0.85f, 1.f);
+    c[ImGuiCol_SeparatorHovered]  = ImVec4(0.38f, 0.36f, 0.85f, 1.f);
+    c[ImGuiCol_SeparatorActive]   = ImVec4(0.48f, 0.45f, 0.95f, 1.f);
+    c[ImGuiCol_DockingPreview]    = ImVec4(0.38f, 0.36f, 0.85f, 0.6f);
 }

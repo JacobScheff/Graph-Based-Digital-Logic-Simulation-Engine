@@ -56,3 +56,17 @@ void TimingWheel::reset()
     currentIndex = 0;
     currentTick  = 0;
 }
+
+void TimingWheel::forgetComponent(Component* c)
+{
+    for (auto& slot : wheel) {
+        slot.components.erase(c);
+    }
+}
+
+void TimingWheel::forgetClock(Clock* c)
+{
+    for (auto& slot : wheel) {
+        slot.clocks.erase(c);
+    }
+}

@@ -20,7 +20,7 @@ public:
 class Switch : public Component
 {
 public:
-    Switch() : Component("SW", 0, 1)
+    Switch() : Component("SW", 1, 1)
     {
         setOutput(false);
     }
@@ -33,12 +33,7 @@ public:
     void setOutput(bool on)
     {
         outputOn = on;
-        if (!getSimulator()) {
-            drivers[0]->setState(on ? State::HIGH : State::LOW);
-            return;
-        }
-        drivers[0]->setState(on ? driveTrue(*getSimulator())
-                                : driveFalse(*getSimulator()));
+        update();
     }
 
     bool  isOn() const { return outputOn; }
@@ -46,7 +41,13 @@ public:
 
     void onRegistered() override { setOutput(outputOn); }
 
-    void update() override {}
+    void update() override {
+        if (outputOn) {
+            drivers[0]->setState(receivers[0]->getState());
+        } else {
+            drivers[0]->setState(State::FLOATING);
+        }
+    }
 
 private:
     bool outputOn = false;
@@ -56,27 +57,20 @@ private:
 class Button : public Component
 {
 public:
-    Button() : Component("BTN", 0, 1)
+    Button() : Component("BTN", 1, 1)
     {
         release();
     }
 
     void press()
     {
-        if (!pressed) {
-            pressed = true;
-            if (!getSimulator()) drivers[0]->setState(State::HIGH);
-            else drivers[0]->setState(driveTrue(*getSimulator()));
-        }
+        pressed = true;
+        update();
     }
     void release()
     {
         pressed = false;
-        if (!getSimulator()) {
-            drivers[0]->setState(State::LOW);
-            return;
-        }
-        drivers[0]->setState(driveFalse(*getSimulator()));
+        update();
     }
 
     void onRegistered() override
@@ -86,7 +80,13 @@ public:
     }
 
     bool isPressed() const { return pressed; }
-    void update() override {}
+    void update() override {
+        if (pressed) {
+            drivers[0]->setState(receivers[0]->getState());
+        } else {
+            drivers[0]->setState(State::FLOATING);
+        }
+    }
 
 private:
     bool pressed = false;
@@ -97,7 +97,7 @@ class Clock : public Component
 {
 public:
     explicit Clock(int halfPeriodTicks = 10)
-        : Component("CLK", 0, 1), halfPeriod(halfPeriodTicks)
+        : Component("CLK", 2, 1), halfPeriod(halfPeriodTicks)
     {
         drivers[0]->setState(State::LOW);
     }
@@ -114,7 +114,9 @@ public:
     }
     int  getHalfPeriod() const { return halfPeriod; }
 
-    void update() override {}
+    void update() override {
+        drivers[0]->setState(outputOn ? driveTrue(*this) : driveFalse(*this));
+    }
 
 private:
     int   halfPeriod;
@@ -133,7 +135,7 @@ public:
     bool  isLit() const
     {
         if (!getSimulator()) return false;
-        return readAsTrue(getLitState(), *getSimulator());
+        return readAsTrue(getLitState(), *this);
     }
 
     void update() override {}
@@ -157,10 +159,9 @@ public:
                 drivers[i]->setState(((value >> (3 - i)) & 1) ? State::HIGH : State::LOW);
             return;
         }
-        auto& sim = *getSimulator();
         for (int i = 0; i < 4; ++i) {
             bool bit = (value >> (3 - i)) & 1;
-            drivers[i]->setState(bit ? driveTrue(sim) : driveFalse(sim));
+            drivers[i]->setState(bit ? driveTrue(*this) : driveFalse(*this));
         }
     }
 
@@ -186,10 +187,9 @@ public:
     int getValue() const
     {
         if (!getSimulator()) return 0;
-        auto& sim = *getSimulator();
         int v = 0;
         for (int i = 0; i < 4; ++i)
-            if (readAsTrue(receivers[i]->getState(), sim))
+            if (readAsTrue(receivers[i]->getState(), *this))
                 v |= (8 >> i);
         return v;
     }
@@ -197,10 +197,9 @@ public:
     bool hasAmbiguity() const
     {
         if (!getSimulator()) return true;
-        auto& sim = *getSimulator();
         for (int i = 0; i < 4; ++i) {
             State s = receivers[i]->getState();
-            if (!readAsTrue(s, sim) && !readAsFalse(s, sim))
+            if (!readAsTrue(s, *this) && !readAsFalse(s, *this))
                 return true;
         }
         return false;
@@ -231,13 +230,12 @@ public:
 
     void update() override {
         if (!getSimulator()) return;
-        auto& sim = *getSimulator();
         int w = getBusWidth();
         for (int i = 0; i < w; ++i) {
             State s = receivers[i]->getState();
-            if (readAsTrue(s, sim))       drivers[i]->setState(driveTrue(sim));
-            else if (readAsFalse(s, sim)) drivers[i]->setState(driveFalse(sim));
-            else                          drivers[i]->setState(s);
+            if (readAsTrue(s, *this))       drivers[i]->setState(driveTrue(*this));
+            else if (readAsFalse(s, *this)) drivers[i]->setState(driveFalse(*this));
+            else                            drivers[i]->setState(s);
         }
     }
 };
@@ -254,13 +252,12 @@ public:
 
     void update() override {
         if (!getSimulator()) return;
-        auto& sim = *getSimulator();
         int w = getBusWidth();
         for (int i = 0; i < w; ++i) {
             State s = receivers[i]->getState();
-            if (readAsTrue(s, sim))       drivers[i]->setState(driveTrue(sim));
-            else if (readAsFalse(s, sim)) drivers[i]->setState(driveFalse(sim));
-            else                          drivers[i]->setState(s);
+            if (readAsTrue(s, *this))       drivers[i]->setState(driveTrue(*this));
+            else if (readAsFalse(s, *this)) drivers[i]->setState(driveFalse(*this));
+            else                            drivers[i]->setState(s);
         }
     }
 };

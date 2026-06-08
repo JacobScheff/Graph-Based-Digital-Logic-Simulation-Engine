@@ -74,13 +74,56 @@ ImVec2 Canvas::driverPos(const ComponentView& cv, int idx) const
              cv.pos.y + step * float(idx + 1) };
 }
 
+static bool hasVddGndInputs(const std::string& typeName)
+{
+    return typeName == "NOT" || typeName == "BUF" ||
+           typeName == "AND" || typeName == "NAND" ||
+           typeName == "OR"  || typeName == "NOR"  ||
+           typeName == "XOR" || typeName == "XNOR" ||
+           typeName == "CLK";
+}
+
 ImVec2 Canvas::receiverPos(const ComponentView& cv, int idx) const
 {
     int n = cv.comp->numReceivers();
     if (n == 0) return cv.pos;
+
+    if (hasVddGndInputs(cv.typeName)) {
+        if (idx == n - 2) {
+            // VDD input: Top border middle
+            return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y - PIN_LEN };
+        }
+        if (idx == n - 1) {
+            // GND input: Bottom border middle
+            return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y + cv.size.y + PIN_LEN };
+        }
+        // Regular inputs on the left: total of n - 2 inputs
+        int numRegular = n - 2;
+        if (numRegular == 0) return cv.pos;
+        float step = cv.size.y / float(numRegular + 1);
+        return { cv.pos.x - PIN_LEN,
+                 cv.pos.y + step * float(idx + 1) };
+    }
+
     float step = cv.size.y / float(n + 1);
     return { cv.pos.x - PIN_LEN,
              cv.pos.y + step * float(idx + 1) };
+}
+
+ImVec2 Canvas::receiverEdgePos(const ComponentView& cv, int idx) const
+{
+    int n = cv.comp->numReceivers();
+    if (n == 0) return cv.pos;
+
+    if (hasVddGndInputs(cv.typeName)) {
+        if (idx == n - 2) {
+            return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y };
+        }
+        if (idx == n - 1) {
+            return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y + cv.size.y };
+        }
+    }
+    return { cv.pos.x, receiverPos(cv, idx).y };
 }
 
 ImVec2 Canvas::busDriverPos(const ComponentView& cv) const
@@ -100,15 +143,18 @@ ImVec2 Canvas::endpointPos(const Endpoint& ep, ImVec2 origin, ImVec2 canvasSize)
             const auto* cv = findComp(ep.compId);
             if (!cv) return {0, 0};
             if (isBusComponent(cv->typeName) && ep.pinIdx == 0) {
-                if (cv->typeName == "BUS_MERGE")
+                if (cv->typeName == "BUS_MERGE" && ep.isDriver)
                     return busDriverPos(*cv);
-                if (cv->typeName == "BUS_SPLIT")
+                if (cv->typeName == "BUS_SPLIT" && !ep.isDriver)
                     return busReceiverPos(*cv);
             }
-            if (ep.pinIdx >= 0 && ep.pinIdx < cv->comp->numDrivers())
-                return driverPos(*cv, ep.pinIdx);
-            if (ep.pinIdx >= 0 && ep.pinIdx < cv->comp->numReceivers())
-                return receiverPos(*cv, ep.pinIdx);
+            if (ep.isDriver) {
+                if (ep.pinIdx >= 0 && ep.pinIdx < cv->comp->numDrivers())
+                    return driverPos(*cv, ep.pinIdx);
+            } else {
+                if (ep.pinIdx >= 0 && ep.pinIdx < cv->comp->numReceivers())
+                    return receiverPos(*cv, ep.pinIdx);
+            }
             return cv->pos;
         }
         case EndpointKind::Rail:
@@ -157,6 +203,48 @@ std::unique_ptr<Component> Canvas::makeComponent(const std::string& type, int bu
     return nullptr;
 }
 
+ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth)
+{
+    int numReceivers = 0;
+    int numDrivers = 0;
+    
+    if (type == "NOT" || type == "BUF") {
+        numReceivers = 3;
+        numDrivers = 1;
+    } else if (type == "AND" || type == "NAND" || type == "OR" || type == "NOR" || type == "XOR" || type == "XNOR") {
+        numReceivers = 4;
+        numDrivers = 1;
+    } else if (type == "SW" || type == "BTN") {
+        numReceivers = 1;
+        numDrivers = 1;
+    } else if (type == "CLK") {
+        numReceivers = 2;
+        numDrivers = 1;
+    } else if (type == "LED") {
+        numReceivers = 1;
+        numDrivers = 0;
+    } else if (type == "NUM_IN") {
+        numReceivers = 0;
+        numDrivers = 4;
+    } else if (type == "NUM_DISP") {
+        numReceivers = 4;
+        numDrivers = 0;
+    } else if (type == "JUNCTION") {
+        numReceivers = 1;
+        numDrivers = 1;
+    } else if (type == "BUS_MERGE" || type == "BUS_SPLIT") {
+        numReceivers = busWidth;
+        numDrivers = busWidth;
+    }
+    
+    int maxPins = std::max(numReceivers, numDrivers);
+    float h = std::max(50.f, float(maxPins + 1) * PIN_SPACE);
+    if (type == "BUS_MERGE" || type == "BUS_SPLIT") {
+        h = std::max(h, float(busWidth + 1) * PIN_SPACE);
+    }
+    return { COMP_W, h };
+}
+
 Canvas::ComponentView Canvas::makeView(const std::string& type, ImVec2 worldPos, int busWidth)
 {
     ComponentView cv;
@@ -166,12 +254,7 @@ Canvas::ComponentView Canvas::makeView(const std::string& type, ImVec2 worldPos,
     cv.comp     = makeComponent(type, busWidth);
     cv.comp->setBusWidth(busWidth);
     cv.pos      = worldPos;
-
-    int maxPins = std::max(cv.comp->numReceivers(), cv.comp->numDrivers());
-    float h = std::max(50.f, float(maxPins + 1) * PIN_SPACE);
-    if (isBusComponent(type))
-        h = std::max(h, float(busWidth + 1) * PIN_SPACE);
-    cv.size = { COMP_W, h };
+    cv.size     = getComponentSize(type, busWidth);
 
     sim->registerComponent(cv.comp.get());
 
@@ -200,8 +283,16 @@ void Canvas::beginPlacement(const std::string& typeName, int busWidth)
 }
 
 void Canvas::completeWireSingle(Driver* drv, Receiver* rcv,
-                                const Endpoint& src, const Endpoint& dst)
+                                const Endpoint& srcIn, const Endpoint& dstIn)
 {
+    Endpoint src = srcIn;
+    Endpoint dst = dstIn;
+    if (src.kind == EndpointKind::Rail && dst.kind != EndpointKind::Rail) {
+        src.railX = endpointPos(dst, {0,0}, {0,0}).x;
+    } else if (dst.kind == EndpointKind::Rail && src.kind != EndpointKind::Rail) {
+        dst.railX = endpointPos(src, {0,0}, {0,0}).x;
+    }
+
     if (!drv || !rcv || rcv->isConnected()) return;
 
     Net* net = drv->isConnected() ? drv->getNet() : sim->connectDriver(drv);
@@ -219,8 +310,22 @@ void Canvas::completeWireSingle(Driver* drv, Receiver* rcv,
     wires.push_back(wv);
 }
 
-void Canvas::completeWire(const Endpoint& src, const Endpoint& dst, int busWidth)
+void Canvas::completeWire(const Endpoint& srcIn, const Endpoint& dstIn, int busWidth)
 {
+    Endpoint src = srcIn;
+    Endpoint dst = dstIn;
+
+    if (src.kind == EndpointKind::Rail && dst.kind != EndpointKind::Rail) {
+        src.railX = endpointPos(dst, {0,0}, {0,0}).x;
+    } else if (dst.kind == EndpointKind::Rail && src.kind != EndpointKind::Rail) {
+        dst.railX = endpointPos(src, {0,0}, {0,0}).x;
+    }
+
+    if (src.kind == dst.kind && src.compId == dst.compId && src.pinIdx == dst.pinIdx &&
+        src.junctionId == dst.junctionId && src.railIsVdd == dst.railIsVdd) return;
+
+    if (src.kind == EndpointKind::Rail && dst.kind == EndpointKind::Rail) return;
+
     if (busWidth <= 1) {
         Driver*   drv = nullptr;
         Receiver* rcv = nullptr;
@@ -240,30 +345,49 @@ void Canvas::completeWire(const Endpoint& src, const Endpoint& dst, int busWidth
         Net* dstNet = nullptr;
         if (src.kind == EndpointKind::Rail)
             srcNet = src.railIsVdd ? sim->getVddNet() : sim->getGndNet();
-        else if (src.kind == EndpointKind::Junction)
+        else if (src.kind == EndpointKind::Junction) {
             if (auto* j = findJunction(src.junctionId)) srcNet = j->net;
+        } else if (drv) {
+            srcNet = drv->getNet();
+        }
 
         if (dst.kind == EndpointKind::Rail)
             dstNet = dst.railIsVdd ? sim->getVddNet() : sim->getGndNet();
-        else if (dst.kind == EndpointKind::Junction)
+        else if (dst.kind == EndpointKind::Junction) {
             if (auto* j = findJunction(dst.junctionId)) dstNet = j->net;
+        } else if (rcv) {
+            dstNet = rcv->getNet();
+        }
 
         Net* wireNet = nullptr;
+        if (src.kind == EndpointKind::Rail) wireNet = srcNet;
+        else if (dst.kind == EndpointKind::Rail) wireNet = dstNet;
+        else if (srcNet) wireNet = srcNet;
+        else if (dstNet) wireNet = dstNet;
 
-        if (drv && rcv) {
-            if (rcv->isConnected()) return;
-            wireNet = drv->isConnected() ? drv->getNet() : sim->connectDriver(drv);
-            if (!wireNet || !sim->canConnect(drv, rcv, wireNet)) return;
+        if (!wireNet) {
+            if (drv) {
+                wireNet = drv->isConnected() ? drv->getNet() : sim->connectDriver(drv);
+            } else {
+                wireNet = sim->createNet();
+            }
+        }
+
+        if (!wireNet) return;
+
+        if (drv && !drv->isConnected()) {
+            sim->connectDriver(drv, wireNet);
+        }
+        if (rcv && !rcv->isConnected()) {
+            if (!sim->canConnect(nullptr, rcv, wireNet)) return;
             sim->connectReceiver(rcv, wireNet);
-        } else if (drv && dstNet) {
-            sim->connectDriver(drv, dstNet);
-            wireNet = dstNet;
-        } else if (srcNet && rcv) {
-            if (rcv->isConnected()) return;
-            sim->connectReceiver(rcv, srcNet);
-            wireNet = srcNet;
-        } else {
-            return;
+        }
+
+        if (src.kind == EndpointKind::Junction) {
+            if (auto* j = findJunction(src.junctionId)) j->net = wireNet;
+        }
+        if (dst.kind == EndpointKind::Junction) {
+            if (auto* j = findJunction(dst.junctionId)) j->net = wireNet;
         }
 
         WireView wv;
@@ -335,25 +459,127 @@ void Canvas::removeWiresOf(int compId)
                 }
             }
             if (wv.net && wv.net != sim->getVddNet() && wv.net != sim->getGndNet()) {
-                if (wv.net->getDrivers().empty() && wv.net->getReceivers().empty())
-                    sim->removeNet(wv.net);
+                if (wv.net->getDrivers().empty() && wv.net->getReceivers().empty()) {
+                    Net* netToDelete = wv.net;
+                    sim->removeNet(netToDelete);
+                    for (auto& w : wires) {
+                        if (w.net == netToDelete) w.net = nullptr;
+                        for (auto& bn : w.busNets) {
+                            if (bn == netToDelete) bn = nullptr;
+                        }
+                    }
+                    for (auto& j : junctions) {
+                        if (j.net == netToDelete) j.net = nullptr;
+                    }
+                }
             }
             for (Net* bn : wv.busNets) {
                 if (bn && bn != sim->getVddNet() && bn != sim->getGndNet()
-                    && bn->getDrivers().empty() && bn->getReceivers().empty())
+                    && bn->getDrivers().empty() && bn->getReceivers().empty()) {
                     sim->removeNet(bn);
+                    for (auto& w : wires) {
+                        if (w.net == bn) w.net = nullptr;
+                        for (auto& bnn : w.busNets) {
+                            if (bnn == bn) bnn = nullptr;
+                        }
+                    }
+                    for (auto& j : junctions) {
+                        if (j.net == bn) j.net = nullptr;
+                    }
+                }
             }
         } else {
             remaining.push_back(wv);
         }
     }
     wires = std::move(remaining);
+    cleanupDanglingJunctions();
+}
+
+void Canvas::removeWire(int wireId)
+{
+    auto it = std::find_if(wires.begin(), wires.end(),
+                           [&](const WireView& w){ return w.id == wireId; });
+    if (it != wires.end()) {
+        const auto& wv = *it;
+        if (wv.src.kind == EndpointKind::Component) {
+            if (auto* cv = findComp(wv.src.compId)) {
+                if (wv.busWidth <= 1) {
+                    if (auto* d = cv->comp->getDriver(wv.src.pinIdx))
+                        sim->disconnectDriver(d);
+                } else {
+                    for (int i = 0; i < wv.busWidth; ++i)
+                        sim->disconnectDriver(cv->comp->getDriver(i));
+                }
+            }
+        }
+        if (wv.dst.kind == EndpointKind::Component) {
+            if (auto* cv = findComp(wv.dst.compId)) {
+                if (wv.busWidth <= 1) {
+                    sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
+                } else {
+                    for (int i = 0; i < wv.busWidth; ++i)
+                        sim->disconnectReceiver(cv->comp->getReceiver(i));
+                }
+            }
+        }
+        if (wv.net && wv.net != sim->getVddNet() && wv.net != sim->getGndNet()) {
+            if (wv.net->getDrivers().empty() && wv.net->getReceivers().empty()) {
+                Net* netToDelete = wv.net;
+                sim->removeNet(netToDelete);
+                for (auto& w : wires) {
+                    if (w.net == netToDelete) w.net = nullptr;
+                    for (auto& bn : w.busNets) {
+                        if (bn == netToDelete) bn = nullptr;
+                    }
+                }
+                for (auto& j : junctions) {
+                    if (j.net == netToDelete) j.net = nullptr;
+                }
+            }
+        }
+        for (Net* bn : wv.busNets) {
+            if (bn && bn != sim->getVddNet() && bn != sim->getGndNet()
+                && bn->getDrivers().empty() && bn->getReceivers().empty()) {
+                sim->removeNet(bn);
+                for (auto& w : wires) {
+                    if (w.net == bn) w.net = nullptr;
+                    for (auto& bnn : w.busNets) {
+                        if (bnn == bn) bnn = nullptr;
+                    }
+                }
+                for (auto& j : junctions) {
+                    if (j.net == bn) j.net = nullptr;
+                }
+            }
+        }
+        wires.erase(it);
+    }
 }
 
 void Canvas::removeJunction(int junctionId)
 {
     junctions.erase(std::remove_if(junctions.begin(), junctions.end(),
         [&](const JunctionView& j){ return j.id == junctionId; }), junctions.end());
+}
+
+void Canvas::cleanupDanglingJunctions()
+{
+    std::vector<JunctionView> remaining;
+    for (const auto& j : junctions) {
+        bool referenced = false;
+        for (const auto& wv : wires) {
+            if ((wv.src.kind == EndpointKind::Junction && wv.src.junctionId == j.id) ||
+                (wv.dst.kind == EndpointKind::Junction && wv.dst.junctionId == j.id)) {
+                referenced = true;
+                break;
+            }
+        }
+        if (referenced) {
+            remaining.push_back(j);
+        }
+    }
+    junctions = std::move(remaining);
 }
 
 void Canvas::insertJunctionOnWire(int wireId, ImVec2 worldPos)
@@ -371,19 +597,97 @@ void Canvas::insertJunctionOnWire(int wireId, ImVec2 worldPos)
 
 void Canvas::deleteSelected()
 {
-    if (selectedId < 0) return;
-    removeWiresOf(selectedId);
-
-    auto it = std::find_if(comps.begin(), comps.end(),
-                           [&](const ComponentView& cv){ return cv.id == selectedId; });
-    if (it != comps.end()) {
-        if (auto* clk = dynamic_cast<Clock*>(it->comp.get()))
-            sim->unregisterClock(clk);
-        else
-            sim->unregisterComponent(it->comp.get());
-        comps.erase(it);
+    std::vector<int> compsToDelete;
+    std::vector<int> junctionsToDelete;
+    std::vector<int> wiresToDelete;
+    for (const auto& cv : comps) {
+        if (cv.selected) compsToDelete.push_back(cv.id);
     }
+    for (const auto& j : junctions) {
+        if (j.selected) junctionsToDelete.push_back(j.id);
+    }
+    for (const auto& w : wires) {
+        if (w.selected) wiresToDelete.push_back(w.id);
+    }
+
+    if (compsToDelete.empty() && selectedId >= 0) {
+        compsToDelete.push_back(selectedId);
+    }
+
+    for (int wId : wiresToDelete) {
+        removeWire(wId);
+    }
+
+    for (int compId : compsToDelete) {
+        removeWiresOf(compId);
+    }
+
+    for (int compId : compsToDelete) {
+        auto it = std::find_if(comps.begin(), comps.end(),
+                               [&](const ComponentView& cv){ return cv.id == compId; });
+        if (it != comps.end()) {
+            if (auto* clk = dynamic_cast<Clock*>(it->comp.get()))
+                sim->unregisterClock(clk);
+            else
+                sim->unregisterComponent(it->comp.get());
+            comps.erase(it);
+        }
+    }
+
+    for (int jId : junctionsToDelete) {
+        removeJunction(jId);
+    }
+
+    if (!junctionsToDelete.empty()) {
+        std::vector<WireView> remainingWires;
+        for (auto& wv : wires) {
+            bool touchesDeletedJunction = 
+                (wv.src.kind == EndpointKind::Junction && std::find(junctionsToDelete.begin(), junctionsToDelete.end(), wv.src.junctionId) != junctionsToDelete.end()) ||
+                (wv.dst.kind == EndpointKind::Junction && std::find(junctionsToDelete.begin(), junctionsToDelete.end(), wv.dst.junctionId) != junctionsToDelete.end());
+            if (touchesDeletedJunction) {
+                if (wv.src.kind == EndpointKind::Component) {
+                    if (auto* cv = findComp(wv.src.compId)) {
+                        if (wv.busWidth <= 1) {
+                            if (auto* d = cv->comp->getDriver(wv.src.pinIdx)) sim->disconnectDriver(d);
+                        } else {
+                            for (int i = 0; i < wv.busWidth; ++i) sim->disconnectDriver(cv->comp->getDriver(i));
+                        }
+                    }
+                }
+                if (wv.dst.kind == EndpointKind::Component) {
+                    if (auto* cv = findComp(wv.dst.compId)) {
+                        if (wv.busWidth <= 1) {
+                            sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
+                        } else {
+                            for (int i = 0; i < wv.busWidth; ++i) sim->disconnectReceiver(cv->comp->getReceiver(i));
+                        }
+                    }
+                }
+                if (wv.net && wv.net != sim->getVddNet() && wv.net != sim->getGndNet()) {
+                    if (wv.net->getDrivers().empty() && wv.net->getReceivers().empty()) {
+                        Net* netToDelete = wv.net;
+                        sim->removeNet(netToDelete);
+                        for (auto& w : wires) {
+                            if (w.net == netToDelete) w.net = nullptr;
+                            for (auto& bn : w.busNets) {
+                                if (bn == netToDelete) bn = nullptr;
+                            }
+                        }
+                        for (auto& j : junctions) {
+                            if (j.net == netToDelete) j.net = nullptr;
+                        }
+                    }
+                }
+            } else {
+                remainingWires.push_back(wv);
+            }
+        }
+        wires = std::move(remainingWires);
+    }
+
+    cleanupDanglingJunctions();
     selectedId = -1;
+    sim->settle();
 }
 
 Canvas::ComponentView* Canvas::findComp(int id)
@@ -427,6 +731,50 @@ const std::string& Canvas::getSelectedTypeName() const
     return cv ? cv->typeName : empty;
 }
 
+bool Canvas::hasSelection() const
+{
+    for (const auto& cv : comps) if (cv.selected) return true;
+    for (const auto& j : junctions) if (j.selected) return true;
+    for (const auto& w : wires) if (w.selected) return true;
+    return selectedId >= 0;
+}
+
+int Canvas::getSelectedComponentCount() const
+{
+    int count = 0;
+    for (const auto& cv : comps) {
+        if (cv.selected) count++;
+    }
+    if (count == 0 && selectedId >= 0) count = 1;
+    return count;
+}
+
+int Canvas::getSelectedWireCount() const
+{
+    int count = 0;
+    for (const auto& w : wires) {
+        if (w.selected) count++;
+    }
+    return count;
+}
+
+int Canvas::getSelectedJunctionCount() const
+{
+    int count = 0;
+    for (const auto& j : junctions) {
+        if (j.selected) count++;
+    }
+    return count;
+}
+
+void Canvas::clearSelection()
+{
+    for (auto& cv : comps) cv.selected = false;
+    for (auto& j : junctions) j.selected = false;
+    for (auto& w : wires) w.selected = false;
+    selectedId = -1;
+}
+
 int Canvas::hitComp(ImVec2 wp) const
 {
     for (auto it = comps.rbegin(); it != comps.rend(); ++it) {
@@ -449,6 +797,7 @@ int Canvas::hitDriverPin(ImVec2 wp, int& outId, bool busSide) const
                 return 0;
             }
         }
+        if (!busSide && cv.typeName == "BUS_MERGE") continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
             ImVec2 p = driverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
@@ -473,6 +822,7 @@ int Canvas::hitReceiverPin(ImVec2 wp, int& outId, bool busSide) const
                 return 0;
             }
         }
+        if (!busSide && cv.typeName == "BUS_SPLIT") continue;
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
             ImVec2 p = receiverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
@@ -524,7 +874,7 @@ int Canvas::hitWire(ImVec2 wp, ImVec2 origin, ImVec2 size, ImVec2& outWorld) con
     for (const auto& wv : wires) {
         ImVec2 src = endpointPos(wv.src, origin, size);
         ImVec2 dst = endpointPos(wv.dst, origin, size);
-        auto pts = routeWire(src, dst);
+        auto pts = routeWire(src, dst, wv.src, wv.dst);
         for (size_t i = 1; i < pts.size(); ++i) {
             ImVec2 a = pts[i-1], b = pts[i];
             float minX = std::min(a.x, b.x) - thresh;
@@ -585,8 +935,15 @@ void Canvas::handleScrollOnComponent(int compId, float scroll)
     sim->settle();
 }
 
-std::vector<ImVec2> Canvas::routeWire(ImVec2 src, ImVec2 dst) const
+std::vector<ImVec2> Canvas::routeWire(ImVec2 src, ImVec2 dst, const Endpoint& srcEp, const Endpoint& dstEp) const
 {
+    if (srcEp.kind == EndpointKind::Rail) {
+        return { src, {dst.x, src.y}, dst };
+    }
+    if (dstEp.kind == EndpointKind::Rail) {
+        return { src, {src.x, dst.y}, dst };
+    }
+
     if (src.x < dst.x - 5.f) {
         float mx = (src.x + dst.x) * 0.5f;
         return { src, {mx, src.y}, {mx, dst.y}, dst };
@@ -604,7 +961,7 @@ std::vector<ImVec2> Canvas::routeWire(ImVec2 src, ImVec2 dst) const
 
 void Canvas::drawGrid(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
 {
-    ImU32 col = IM_COL32(50, 50, 60, 255);
+    ImU32 col = IM_COL32(55, 55, 68, 180); // sleek modern gray dots
     ImVec2 wMin = s2w(origin, origin);
     ImVec2 wMax = s2w({origin.x+size.x, origin.y+size.y}, origin);
 
@@ -615,17 +972,12 @@ void Canvas::drawGrid(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
     float botY = origin.y + size.y - RAIL_BAND;
 
     for (float wx = startX; wx <= wMax.x; wx += GRID) {
-        ImVec2 a = w2s({wx, wMin.y}, origin);
-        ImVec2 b = w2s({wx, wMax.y}, origin);
-        a.y = std::max(a.y, topY);
-        b.y = std::min(b.y, botY);
-        if (a.y < b.y) dl->AddLine(a, b, col, 0.5f);
-    }
-    for (float wy = startY; wy <= wMax.y; wy += GRID) {
-        if (wy < wMin.y + RAIL_BAND || wy > wMax.y - RAIL_BAND) continue;
-        ImVec2 a = w2s({wMin.x, wy}, origin);
-        ImVec2 b = w2s({wMax.x, wy}, origin);
-        dl->AddLine(a, b, col, 0.5f);
+        for (float wy = startY; wy <= wMax.y; wy += GRID) {
+            ImVec2 p = w2s({wx, wy}, origin);
+            if (p.y >= topY && p.y <= botY) {
+                dl->AddCircleFilled(p, 1.2f * zoom, col);
+            }
+        }
     }
 }
 
@@ -666,29 +1018,50 @@ void Canvas::drawRails(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
 
 static const char* pinLabel(const std::string& type, bool isInput, int idx, int busWidth)
 {
-    static const char* gateIn2[] = {"A","B"};
-    if (isInput  && (type=="AND"||type=="NAND"||type=="OR"||
-                     type=="NOR"||type=="XOR"||type=="XNOR")) return gateIn2[idx];
-    if (isInput  && (type=="NOT"||type=="BUF"||type=="JUNCTION"||type=="LED"))
-        return "A";
-    if (type=="NUM_DISP"&& isInput) {
-        static const char* nb[] = {"3","2","1","0"};
-        if (idx < 4) return nb[idx];
-    }
-    if (type == "BUS_MERGE" && isInput) {
-        static char buf[8];
-        std::snprintf(buf, sizeof(buf), "%d", idx);
-        return buf;
-    }
-    if (type == "BUS_SPLIT" && !isInput) {
-        static char buf[8];
-        std::snprintf(buf, sizeof(buf), "%d", idx);
-        return buf;
-    }
-    if ((type == "BUS_MERGE" && !isInput) || (type == "BUS_SPLIT" && isInput)) {
-        static char buf[16];
-        std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
-        return buf;
+    if (isInput) {
+        if (type == "NOT" || type == "BUF") {
+            if (idx == 0) return "A";
+            if (idx == 1) return "V";
+            if (idx == 2) return "G";
+        }
+        if (type == "AND" || type == "NAND" || type == "OR" || type == "NOR" || type == "XOR" || type == "XNOR") {
+            if (idx == 0) return "A";
+            if (idx == 1) return "B";
+            if (idx == 2) return "V";
+            if (idx == 3) return "G";
+        }
+        if (type == "SW" || type == "BTN" || type == "CLK") {
+            if (idx == 0) return "V";
+            if (idx == 1) return "G";
+        }
+        if (type == "LED") {
+            if (idx == 0) return "A";
+        }
+        if (type == "NUM_DISP") {
+            static const char* nb[] = {"3","2","1","0"};
+            if (idx < 4) return nb[idx];
+        }
+        if (type == "BUS_MERGE") {
+            static char buf[8];
+            std::snprintf(buf, sizeof(buf), "%d", idx);
+            return buf;
+        }
+        if (type == "BUS_SPLIT") {
+            static char buf[16];
+            std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
+            return buf;
+        }
+    } else {
+        if (type == "BUS_MERGE") {
+            static char buf[16];
+            std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
+            return buf;
+        }
+        if (type == "BUS_SPLIT") {
+            static char buf[8];
+            std::snprintf(buf, sizeof(buf), "%d", idx);
+            return buf;
+        }
     }
     return "";
 }
@@ -698,9 +1071,9 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     ImVec2 tl = w2s(cv.pos, origin);
     ImVec2 br = w2s({cv.pos.x + cv.size.x, cv.pos.y + cv.size.y}, origin);
 
-    ImU32 bodyCol   = IM_COL32( 30,  32,  48, 255);
-    ImU32 borderCol = cv.selected ? IM_COL32(130, 130, 255, 255)
-                                  : IM_COL32( 80,  82, 110, 255);
+    ImU32 bodyCol   = IM_COL32(23, 23, 31, 255); // #17171F modern deep cardbg
+    ImU32 borderCol = cv.selected ? IM_COL32(99, 102, 241, 255) // Indigo
+                                  : IM_COL32(42, 43, 54, 255);  // #2A2B36 sleek border
     float rounding = 6.f * zoom;
     dl->AddRectFilled(tl, br, bodyCol, rounding);
     dl->AddRect      (tl, br, borderCol, rounding, 0, cv.selected ? 2.f : 1.f);
@@ -753,13 +1126,14 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     int bw = componentBusWidth(cv);
 
     for (int i = 0; i < cv.comp->numReceivers(); ++i) {
+        if (cv.typeName == "BUS_SPLIT" && i > 0) continue;
         ImVec2 tip, edge;
         if (isBusComponent(cv.typeName) && i == 0 && cv.typeName == "BUS_SPLIT") {
             tip  = w2s(busReceiverPos(cv), origin);
             edge = w2s({cv.pos.x, busReceiverPos(cv).y}, origin);
         } else {
             tip  = w2s(receiverPos(cv, i), origin);
-            edge = w2s({cv.pos.x, receiverPos(cv, i).y}, origin);
+            edge = w2s(receiverEdgePos(cv, i), origin);
         }
         State st  = cv.comp->getReceiver(i)->getState();
         ImU32 col = stateColor(st);
@@ -767,18 +1141,29 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
                     ? 4.f * zoom : 2.f * zoom;
         dl->AddLine(edge, tip, col, lw);
         dl->AddCircleFilled(tip, PIN_RAD * zoom, col);
-
+ 
         const char* lbl = pinLabel(cv.typeName, true, i, bw);
         if (*lbl && fontSize >= 9.f) {
             ImVec2 ts = ImGui::CalcTextSize(lbl);
             float sc = fontSize / ImGui::GetFontSize() * 0.75f;
-            dl->AddText(ImGui::GetFont(), fontSize * .75f,
-                        { edge.x + 3.f, edge.y - ts.y * sc * .5f },
+            ImVec2 textPos;
+            if (hasVddGndInputs(cv.typeName) && i == cv.comp->numReceivers() - 2) {
+                // VDD: top border, center horizontally, offset downwards inside
+                textPos = { edge.x - ts.x * sc * 0.5f, edge.y + 2.f * zoom };
+            } else if (hasVddGndInputs(cv.typeName) && i == cv.comp->numReceivers() - 1) {
+                // GND: bottom border, center horizontally, offset upwards inside
+                textPos = { edge.x - ts.x * sc * 0.5f, edge.y - ts.y * sc - 2.f * zoom };
+            } else {
+                // Regular left-side inputs
+                textPos = { edge.x + 3.f * zoom, edge.y - ts.y * sc * 0.5f };
+            }
+            dl->AddText(ImGui::GetFont(), fontSize * .75f, textPos,
                         IM_COL32(180,180,180,200), lbl);
         }
     }
 
     for (int i = 0; i < cv.comp->numDrivers(); ++i) {
+        if (cv.typeName == "BUS_MERGE" && i > 0) continue;
         ImVec2 tip, edge;
         if (isBusComponent(cv.typeName) && i == 0 && cv.typeName == "BUS_MERGE") {
             tip  = w2s(busDriverPos(cv), origin);
@@ -841,7 +1226,9 @@ void Canvas::drawJunctions(ImDrawList* dl, ImVec2 origin, ImVec2 /*size*/) const
         State st = j.net ? j.net->getState() : State::FLOATING;
         ImU32 col = stateColor(st);
         dl->AddCircleFilled(s, 5.f * zoom, col);
-        dl->AddCircle(s, 5.f * zoom, IM_COL32(255, 255, 255, 180), 0, 1.5f);
+        ImU32 borderCol = j.selected ? IM_COL32(99, 102, 241, 255)
+                                     : IM_COL32(255, 255, 255, 180);
+        dl->AddCircle(s, 5.f * zoom, borderCol, 0, j.selected ? 2.f : 1.5f);
     }
 }
 
@@ -850,7 +1237,7 @@ void Canvas::drawAllWires(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
     for (const auto& wv : wires) {
         ImVec2 src = endpointPos(wv.src, origin, size);
         ImVec2 dst = endpointPos(wv.dst, origin, size);
-        auto pts   = routeWire(src, dst);
+        auto pts   = routeWire(src, dst, wv.src, wv.dst);
 
         State st = State::FLOATING;
         if (wv.busWidth > 1 && !wv.busNets.empty())
@@ -860,6 +1247,13 @@ void Canvas::drawAllWires(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
 
         ImU32 col = stateColor(st);
         float lw  = wv.busWidth > 1 ? 4.f * zoom : 2.f * zoom;
+
+        if (wv.selected) {
+            for (size_t i = 1; i < pts.size(); ++i) {
+                dl->AddLine(w2s(pts[i-1], origin), w2s(pts[i], origin),
+                            IM_COL32(99, 102, 241, 130), lw + 4.f * zoom);
+            }
+        }
 
         for (size_t i = 1; i < pts.size(); ++i)
             dl->AddLine(w2s(pts[i-1], origin), w2s(pts[i], origin), col, lw);
@@ -881,7 +1275,7 @@ void Canvas::drawWireInProgress(ImDrawList* dl, ImVec2 origin, ImVec2 size, ImVe
 
     ImVec2 srcW = endpointPos(wireSrc, origin, size);
     ImVec2 dstW = s2w(mouseSS, origin);
-    auto   pts  = routeWire(srcW, dstW);
+    auto   pts  = routeWire(srcW, dstW, wireSrc, Endpoint{});
 
     ImU32 col = IM_COL32(200, 200, 100, 180);
     for (size_t i = 1; i < pts.size(); ++i)
@@ -895,16 +1289,11 @@ void Canvas::drawPlacementGhost(ImDrawList* dl, ImVec2 origin, ImVec2 mouseSS) c
     wPos.x -= COMP_W / 2.f;
     wPos.y -= 30.f;
 
-    auto tmp = const_cast<Canvas*>(this)->makeView(pendingType, wPos, pendingBusWidth);
-    ImVec2 tl = w2s(tmp.pos, origin);
-    ImVec2 br = w2s({tmp.pos.x + tmp.size.x, tmp.pos.y + tmp.size.y}, origin);
-    dl->AddRectFilled(tl, br, IM_COL32(100,100,200,50), 6.f*zoom);
-    dl->AddRect(tl, br, IM_COL32(150,150,255,180), 6.f*zoom);
-
-    if (auto* clk = dynamic_cast<Clock*>(tmp.comp.get()))
-        const_cast<Canvas*>(this)->sim->unregisterClock(clk);
-    else
-        const_cast<Canvas*>(this)->sim->unregisterComponent(tmp.comp.get());
+    ImVec2 size = getComponentSize(pendingType, pendingBusWidth);
+    ImVec2 tl = w2s(wPos, origin);
+    ImVec2 br = w2s({wPos.x + size.x, wPos.y + size.y}, origin);
+    dl->AddRectFilled(tl, br, IM_COL32(99, 102, 241, 50), 6.f*zoom);
+    dl->AddRect(tl, br, IM_COL32(129, 140, 248, 180), 6.f*zoom, 0, 1.5f);
 }
 
 void Canvas::render()
@@ -956,13 +1345,76 @@ void Canvas::render()
         }
     }
 
-    // Right-click on wire → insert junction
+    // Right-click → context menu
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         ImVec2 wp = s2w(mousePos, origin);
-        ImVec2 jPos;
-        int wireId = hitWire(wp, origin, size, jPos);
-        if (wireId >= 0)
-            insertJunctionOnWire(wireId, jPos);
+        int jId = hitJunction(wp);
+        if (jId >= 0) {
+            rightClickedJunctionId = jId;
+            rightClickedCompId = -1;
+            rightClickedWireId = -1;
+            auto* j = findJunction(jId);
+            if (j && !j->selected) {
+                bool shiftHeld = ImGui::GetIO().KeyShift;
+                if (!shiftHeld) {
+                    for (auto& c : comps) c.selected = false;
+                    for (auto& jc : junctions) jc.selected = false;
+                    for (auto& w : wires) w.selected = false;
+                    selectedId = -1;
+                }
+                j->selected = true;
+            }
+            ImGui::OpenPopup("##canvas_context_menu");
+        } else {
+            int compId = hitComp(wp);
+            if (compId >= 0) {
+                rightClickedCompId = compId;
+                rightClickedJunctionId = -1;
+                rightClickedWireId = -1;
+                auto* cv = findComp(compId);
+                if (cv && !cv->selected) {
+                    bool shiftHeld = ImGui::GetIO().KeyShift;
+                    if (!shiftHeld) {
+                        for (auto& c : comps) c.selected = false;
+                        for (auto& jc : junctions) jc.selected = false;
+                        for (auto& w : wires) w.selected = false;
+                    }
+                    cv->selected = true;
+                    selectedId = compId;
+                }
+                ImGui::OpenPopup("##canvas_context_menu");
+            } else {
+                ImVec2 jPos;
+                int wireId = hitWire(wp, origin, size, jPos);
+                if (wireId >= 0) {
+                    rightClickedWireId = wireId;
+                    rightClickedWireJunctionPos = jPos;
+                    rightClickedCompId = -1;
+                    rightClickedJunctionId = -1;
+                    for (auto& w : wires) {
+                        if (w.id == wireId) {
+                            if (!w.selected) {
+                                bool shiftHeld = ImGui::GetIO().KeyShift;
+                                if (!shiftHeld) {
+                                    for (auto& c : comps) c.selected = false;
+                                    for (auto& jc : junctions) jc.selected = false;
+                                    for (auto& wr : wires) wr.selected = false;
+                                    selectedId = -1;
+                                }
+                                w.selected = true;
+                            }
+                            break;
+                        }
+                    }
+                    ImGui::OpenPopup("##canvas_context_menu");
+                } else {
+                    rightClickedCompId = -1;
+                    rightClickedJunctionId = -1;
+                    rightClickedWireId = -1;
+                    ImGui::OpenPopup("##canvas_context_menu");
+                }
+            }
+        }
     }
 
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -1025,6 +1477,7 @@ void Canvas::render()
                 wireSrc.kind = EndpointKind::Component;
                 wireSrc.compId = compId;
                 wireSrc.pinIdx = pinIdx;
+                wireSrc.isDriver = true;
                 mode = Mode::DrawingWire;
             } else {
                 pinIdx = hitDriverPin(wp, compId, false);
@@ -1032,6 +1485,7 @@ void Canvas::render()
                     wireSrc.kind = EndpointKind::Component;
                     wireSrc.compId = compId;
                     wireSrc.pinIdx = pinIdx;
+                    wireSrc.isDriver = true;
                     mode = Mode::DrawingWire;
                 } else {
                     bool railVdd; float railX;
@@ -1043,9 +1497,26 @@ void Canvas::render()
                     } else {
                         int jId = hitJunction(wp);
                         if (jId >= 0) {
-                            wireSrc.kind = EndpointKind::Junction;
-                            wireSrc.junctionId = jId;
-                            mode = Mode::DrawingWire;
+                            auto* j = findJunction(jId);
+                            bool shiftHeld = ImGui::GetIO().KeyShift;
+                            if (!j->selected) {
+                                if (!shiftHeld) {
+                                    for (auto& c : comps) c.selected = false;
+                                    for (auto& jc : junctions) jc.selected = false;
+                                }
+                                j->selected = true;
+                            }
+                            mode = Mode::DraggingComp;
+                            dragStartMouse = wp;
+                            
+                            dragStartComps.clear();
+                            dragStartJunctions.clear();
+                            for (const auto& c : comps) {
+                                if (c.selected) dragStartComps.push_back({c.id, c.pos});
+                            }
+                            for (const auto& jc : junctions) {
+                                if (jc.selected) dragStartJunctions.push_back({jc.id, jc.pos});
+                            }
                         } else {
                             int hit = hitComp(wp);
                             if (hit >= 0) {
@@ -1055,24 +1526,93 @@ void Canvas::render()
                                     pressedButtonId = hit;
                                     mode = Mode::PressingButton;
                                 } else {
-                                    if (selectedId >= 0)
-                                        if (auto* prev = findComp(selectedId)) prev->selected = false;
+                                    bool shiftHeld = ImGui::GetIO().KeyShift;
+                                    if (!cv->selected) {
+                                        if (!shiftHeld) {
+                                            for (auto& c : comps) c.selected = false;
+                                            for (auto& jc : junctions) jc.selected = false;
+                                            for (auto& w : wires) w.selected = false;
+                                        }
+                                        cv->selected = true;
+                                    }
                                     selectedId = hit;
-                                    cv->selected = true;
                                     mode = Mode::DraggingComp;
                                     dragStartMouse = wp;
-                                    dragStartPos   = cv->pos;
+                                    
+                                    dragStartComps.clear();
+                                    dragStartJunctions.clear();
+                                    for (const auto& c : comps) {
+                                        if (c.selected) dragStartComps.push_back({c.id, c.pos});
+                                    }
+                                    for (const auto& jc : junctions) {
+                                        if (jc.selected) dragStartJunctions.push_back({jc.id, jc.pos});
+                                    }
                                 }
                             } else {
-                                if (selectedId >= 0)
-                                    if (auto* prev = findComp(selectedId)) prev->selected = false;
-                                selectedId = -1;
+                                ImVec2 wirePos;
+                                int wId = hitWire(wp, origin, size, wirePos);
+                                if (wId >= 0) {
+                                    bool shiftHeld = ImGui::GetIO().KeyShift;
+                                    if (!shiftHeld) {
+                                        for (auto& c : comps) c.selected = false;
+                                        for (auto& jc : junctions) jc.selected = false;
+                                        for (auto& w : wires) {
+                                            if (w.id != wId) w.selected = false;
+                                        }
+                                        selectedId = -1;
+                                    }
+                                    for (auto& w : wires) {
+                                        if (w.id == wId) {
+                                            w.selected = shiftHeld ? !w.selected : true;
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    // Clicked on empty space
+                                    bool shiftHeld = ImGui::GetIO().KeyShift;
+                                    if (!shiftHeld) {
+                                        for (auto& c : comps) c.selected = false;
+                                        for (auto& jc : junctions) jc.selected = false;
+                                        for (auto& w : wires) w.selected = false;
+                                        selectedId = -1;
+                                    }
+                                    mode = Mode::SelectingRegion;
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    if (mode == Mode::SelectingRegion && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        ImVec2 wp = s2w(mousePos, origin);
+        float xmin = std::min(clickStartMouse.x, wp.x);
+        float xmax = std::max(clickStartMouse.x, wp.x);
+        float ymin = std::min(clickStartMouse.y, wp.y);
+        float ymax = std::max(clickStartMouse.y, wp.y);
+
+        bool shiftHeld = ImGui::GetIO().KeyShift;
+        for (auto& cv : comps) {
+            float cx = cv.pos.x + cv.size.x * 0.5f;
+            float cy = cv.pos.y + cv.size.y * 0.5f;
+            bool inside = (cx >= xmin && cx <= xmax && cy >= ymin && cy <= ymax);
+            if (inside) {
+                cv.selected = shiftHeld ? !cv.selected : true;
+            } else {
+                if (!shiftHeld) cv.selected = false;
+            }
+        }
+        for (auto& j : junctions) {
+            bool inside = (j.pos.x >= xmin && j.pos.x <= xmax && j.pos.y >= ymin && j.pos.y <= ymax);
+            if (inside) {
+                j.selected = shiftHeld ? !j.selected : true;
+            } else {
+                if (!shiftHeld) j.selected = false;
+            }
+        }
+        mode = Mode::Idle;
     }
 
     if (mode == Mode::PressingButton && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -1086,29 +1626,39 @@ void Canvas::render()
         ImVec2 wp = s2w(mousePos, origin);
         float dx = wp.x - clickStartMouse.x;
         float dy = wp.y - clickStartMouse.y;
-        if (dx*dx + dy*dy < CLICK_THRESH * CLICK_THRESH)
-            tryHandleComponentClick(selectedId, false, true);
+        if (dx*dx + dy*dy < CLICK_THRESH * CLICK_THRESH) {
+            if (selectedId >= 0) {
+                tryHandleComponentClick(selectedId, false, true);
+            }
+        }
         mode = Mode::Idle;
     }
 
     if (mode == Mode::DraggingComp && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
         ImVec2 wp = s2w(mousePos, origin);
-        if (auto* cv = findComp(selectedId)) {
-            ImVec2 newPos = { dragStartPos.x + (wp.x - dragStartMouse.x),
-                              dragStartPos.y + (wp.y - dragStartMouse.y) };
-            cv->pos = snapToGrid(newPos);
+        ImVec2 delta = { wp.x - dragStartMouse.x, wp.y - dragStartMouse.y };
+        for (const auto& p : dragStartComps) {
+            if (auto* cv = findComp(p.first)) {
+                cv->pos = snapToGrid({ p.second.x + delta.x, p.second.y + delta.y });
+            }
+        }
+        for (const auto& p : dragStartJunctions) {
+            if (auto* j = findJunction(p.first)) {
+                j->pos = snapToGrid({ p.second.x + delta.x, p.second.y + delta.y });
+            }
         }
     }
 
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         mode = Mode::Idle;
-        if (selectedId >= 0)
-            if (auto* cv = findComp(selectedId)) cv->selected = false;
+        for (auto& cv : comps) cv.selected = false;
+        for (auto& j : junctions) j.selected = false;
+        for (auto& w : wires) w.selected = false;
         selectedId = -1;
         pressedButtonId = -1;
     }
 
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete)) deleteSelected();
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) deleteSelected();
 
     drawAllWires(dl, origin, size);
     drawJunctions(dl, origin, size);
@@ -1116,7 +1666,108 @@ void Canvas::render()
     drawWireInProgress(dl, origin, size, mousePos);
     drawPlacementGhost(dl, origin, mousePos);
 
-    if (mode == Mode::Placing || mode == Mode::DrawingWire)
+    if (mode == Mode::SelectingRegion) {
+        ImVec2 wp = s2w(mousePos, origin);
+        ImVec2 tl = w2s({std::min(clickStartMouse.x, wp.x), std::min(clickStartMouse.y, wp.y)}, origin);
+        ImVec2 br = w2s({std::max(clickStartMouse.x, wp.x), std::max(clickStartMouse.y, wp.y)}, origin);
+        dl->AddRectFilled(tl, br, IM_COL32(99, 102, 241, 35), 0.f);
+        dl->AddRect(tl, br, IM_COL32(99, 102, 241, 180), 0.f, 0, 1.5f);
+    }
+
+    if (ImGui::BeginPopup("##canvas_context_menu")) {
+        bool hasSel = hasSelection();
+        if (rightClickedCompId >= 0) {
+            auto* cv = findComp(rightClickedCompId);
+            ImGui::Text("Component: %s", cv ? cv->typeName.c_str() : "");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Delete Component")) {
+                if (cv) {
+                    removeWiresOf(rightClickedCompId);
+                    auto it = std::find_if(comps.begin(), comps.end(),
+                                           [&](const ComponentView& c){ return c.id == rightClickedCompId; });
+                    if (it != comps.end()) {
+                        if (auto* clk = dynamic_cast<Clock*>(it->comp.get()))
+                            sim->unregisterClock(clk);
+                        else
+                            sim->unregisterComponent(it->comp.get());
+                        comps.erase(it);
+                    }
+                    if (selectedId == rightClickedCompId) selectedId = -1;
+                    sim->settle();
+                }
+            }
+        } else if (rightClickedJunctionId >= 0) {
+            ImGui::Text("Junction");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Delete Junction")) {
+                removeJunction(rightClickedJunctionId);
+                std::vector<WireView> remainingWires;
+                for (auto& wv : wires) {
+                    bool touchesJunction = 
+                        (wv.src.kind == EndpointKind::Junction && wv.src.junctionId == rightClickedJunctionId) ||
+                        (wv.dst.kind == EndpointKind::Junction && wv.dst.junctionId == rightClickedJunctionId);
+                    if (touchesJunction) {
+                        if (wv.src.kind == EndpointKind::Component) {
+                            if (auto* cv = findComp(wv.src.compId)) {
+                                if (wv.busWidth <= 1) {
+                                    if (auto* d = cv->comp->getDriver(wv.src.pinIdx)) sim->disconnectDriver(d);
+                                } else {
+                                    for (int i = 0; i < wv.busWidth; ++i) sim->disconnectDriver(cv->comp->getDriver(i));
+                                }
+                            }
+                        }
+                        if (wv.dst.kind == EndpointKind::Component) {
+                            if (auto* cv = findComp(wv.dst.compId)) {
+                                if (wv.busWidth <= 1) {
+                                    sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
+                                } else {
+                                    for (int i = 0; i < wv.busWidth; ++i) sim->disconnectReceiver(cv->comp->getReceiver(i));
+                                }
+                            }
+                        }
+                    } else {
+                        remainingWires.push_back(wv);
+                    }
+                }
+                wires = std::move(remainingWires);
+                cleanupDanglingJunctions();
+                sim->settle();
+            }
+        } else if (rightClickedWireId >= 0) {
+            ImGui::Text("Connection");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Delete Connection")) {
+                removeWire(rightClickedWireId);
+                sim->settle();
+            }
+            if (ImGui::MenuItem("Insert Junction")) {
+                insertJunctionOnWire(rightClickedWireId, rightClickedWireJunctionPos);
+                sim->settle();
+            }
+        } else {
+            ImGui::Text("Canvas");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Select All")) {
+                for (auto& cv : comps) cv.selected = true;
+                for (auto& j : junctions) j.selected = true;
+                for (auto& w : wires) w.selected = true;
+            }
+            if (ImGui::MenuItem("Clear Selection", nullptr, false, hasSel)) {
+                clearSelection();
+            }
+        }
+
+        if (hasSel) {
+            ImGui::Separator();
+            if (ImGui::MenuItem("Delete Selected")) {
+                deleteSelected();
+                sim->settle();
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    if (mode == Mode::Placing || mode == Mode::DrawingWire || mode == Mode::SelectingRegion)
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
 
     dl->PopClipRect();

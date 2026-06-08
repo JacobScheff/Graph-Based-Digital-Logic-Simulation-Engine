@@ -16,6 +16,7 @@ void Driver::connect(Net* net)
     disconnect();          // detach from any previous net
     this->net = net;
     net->addDriver(this);  // net counts our current state immediately
+    owner->scheduleUpdate(1);
 }
 
 void Driver::disconnect()
@@ -23,6 +24,7 @@ void Driver::disconnect()
     if (net) {
         net->removeDriver(this);
         net = nullptr;
+        owner->scheduleUpdate(1);
     }
 }
 
@@ -50,6 +52,7 @@ void Receiver::connect(Net* net)
     disconnect();
     this->net = net;
     net->addReceiver(this);
+    owner->scheduleUpdate(propagationDelay);
 }
 
 void Receiver::disconnect()
@@ -57,6 +60,7 @@ void Receiver::disconnect()
     if (net) {
         net->removeReceiver(this);
         net = nullptr;
+        owner->scheduleUpdate(propagationDelay);
     }
 }
 

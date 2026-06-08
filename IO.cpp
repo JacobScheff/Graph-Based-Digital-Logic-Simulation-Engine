@@ -13,7 +13,6 @@ void Clock::onTick(TimingWheel* w)
 {
     if (!running || !getSimulator()) return;
     outputOn = !outputOn;
-    auto& sim = *getSimulator();
-    drivers[0]->setState(outputOn ? driveTrue(sim) : driveFalse(sim));
+    drivers[0]->setState(outputOn ? driveTrue(*this) : driveFalse(*this));
     w->scheduleClock(this, halfPeriod);
 }

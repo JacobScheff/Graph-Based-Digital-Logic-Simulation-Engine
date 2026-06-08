@@ -65,6 +65,7 @@ void Simulator::registerComponent(Component* c)
 
 void Simulator::unregisterComponent(Component* c)
 {
+    wheel.forgetComponent(c);
     c->setTimingWheel(nullptr);
     c->setSimulator(nullptr);
     components.erase(std::remove(components.begin(), components.end(), c),
@@ -80,6 +81,7 @@ void Simulator::registerClock(Clock* c)
 
 void Simulator::unregisterClock(Clock* c)
 {
+    wheel.forgetClock(c);
     unregisterComponent(c);
     clocks.erase(std::remove(clocks.begin(), clocks.end(), c), clocks.end());
 }

@@ -22,6 +22,12 @@ public:
     Component*         getSelectedComponent() const;
     const std::string& getSelectedTypeName()  const;
 
+    bool hasSelection() const;
+    int  getSelectedComponentCount() const;
+    int  getSelectedWireCount() const;
+    int  getSelectedJunctionCount() const;
+    void clearSelection();
+
     void deleteSelected();
     void settle() { if (sim) sim->settle(); }
 
@@ -32,6 +38,7 @@ private:
         EndpointKind kind = EndpointKind::Component;
         int  compId    = -1;
         int  pinIdx    = -1;
+        bool isDriver  = false;
         bool railIsVdd = true;
         float railX    = 0.f;
         int  junctionId = -1;
@@ -51,6 +58,7 @@ private:
         int    id;
         Net*   net = nullptr;
         ImVec2 pos;
+        bool   selected = false;
     };
 
     struct WireView {
@@ -60,16 +68,20 @@ private:
         std::vector<Net*> busNets;
         Endpoint src;
         Endpoint dst;
+        bool  selected = false;
     };
 
     enum class Mode {
-        Idle, Placing, DraggingComp, DrawingWire, PressingButton
+        Idle, Placing, DraggingComp, DrawingWire, PressingButton, SelectingRegion
     };
 
     Simulator*                 sim;
     std::vector<ComponentView> comps;
     std::vector<JunctionView>  junctions;
     std::vector<WireView>      wires;
+
+    std::vector<std::pair<int, ImVec2>> dragStartComps;
+    std::vector<std::pair<int, ImVec2>> dragStartJunctions;
 
     ImVec2  pan      = {0.f, 0.f};
     float   zoom     = 1.f;
@@ -78,6 +90,10 @@ private:
     std::string pendingType;
     int         pendingBusWidth = 4;
     int         selectedId   = -1;
+    int         rightClickedCompId = -1;
+    int         rightClickedJunctionId = -1;
+    int         rightClickedWireId = -1;
+    ImVec2      rightClickedWireJunctionPos = {0.f, 0.f};
 
     ImVec2 dragStartMouse;
     ImVec2 dragStartPos;
@@ -105,6 +121,7 @@ private:
 
     ImVec2 driverPos(const ComponentView& cv, int idx) const;
     ImVec2 receiverPos(const ComponentView& cv, int idx) const;
+    ImVec2 receiverEdgePos(const ComponentView& cv, int idx) const;
     ImVec2 busDriverPos(const ComponentView& cv) const;
     ImVec2 busReceiverPos(const ComponentView& cv) const;
     ImVec2 endpointPos(const Endpoint& ep, ImVec2 origin, ImVec2 canvasSize) const;
@@ -126,7 +143,7 @@ private:
     void drawWireInProgress(ImDrawList* dl, ImVec2 origin, ImVec2 size, ImVec2 mouseSS) const;
     void drawPlacementGhost(ImDrawList* dl, ImVec2 origin, ImVec2 mouseSS) const;
 
-    std::vector<ImVec2> routeWire(ImVec2 src, ImVec2 dst) const;
+    std::vector<ImVec2> routeWire(ImVec2 src, ImVec2 dst, const Endpoint& srcEp, const Endpoint& dstEp) const;
     ImU32 stateColor(State s) const;
     ImVec2 railEndpointWorld(bool isVdd, float worldX, ImVec2 origin, ImVec2 canvasSize) const;
 
@@ -134,11 +151,15 @@ private:
     std::unique_ptr<Component> makeComponent(const std::string& type, int busWidth = 1);
     void placeAt(const std::string& type, ImVec2 worldPos, int busWidth = 1);
 
+    static ImVec2 getComponentSize(const std::string& type, int busWidth);
+
     void completeWire(const Endpoint& src, const Endpoint& dst, int busWidth = 1);
     void completeWireSingle(Driver* drv, Receiver* rcv, const Endpoint& src, const Endpoint& dst);
     void removeWiresOf(int compId);
+    void removeWire(int wireId);
     void removeJunction(int junctionId);
     void insertJunctionOnWire(int wireId, ImVec2 worldPos);
+    void cleanupDanglingJunctions();
 
     bool tryHandleComponentClick(int compId, bool mouseDown, bool mouseUp);
     void handleScrollOnComponent(int compId, float scroll);

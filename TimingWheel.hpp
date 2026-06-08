@@ -49,6 +49,10 @@ public:
     // Clear all pending events and reset the tick counter
     void reset();
 
+    // Remove all references to a deleted component/clock from the wheel slots
+    void forgetComponent(Component* c);
+    void forgetClock(Clock* c);
+
     uint64_t getCurrentTick()  const { return currentTick; }
     int      getCurrentIndex() const { return currentIndex; }
 

@@ -1,51 +1,76 @@
 #include "PowerRails.hpp"
 #include "Simulator.hpp"
+#include "Components.hpp"
 #include "Net.hpp"
 
 State vddLevel(const Simulator& sim) { return sim.getVddNet()->getState(); }
 State gndLevel(const Simulator& sim) { return sim.getGndNet()->getState(); }
+bool  readAsTrue(State s, const Simulator& sim)  { return s == vddLevel(sim); }
+bool  readAsFalse(State s, const Simulator& sim) { return s == gndLevel(sim); }
 
-State driveTrue(const Simulator& sim)  { return vddLevel(sim); }
-State driveFalse(const Simulator& sim) { return gndLevel(sim); }
-
-bool readAsTrue(State s, const Simulator& sim)  { return s == vddLevel(sim); }
-bool readAsFalse(State s, const Simulator& sim) { return s == gndLevel(sim); }
-
-State resolveAndRail(State a, State b, const Simulator& sim)
+State vddLevel(const Component& comp)
 {
-    bool a1 = readAsTrue(a, sim), a0 = readAsFalse(a, sim);
-    bool b1 = readAsTrue(b, sim), b0 = readAsFalse(b, sim);
-    if (a0 || b0) return driveFalse(sim);
-    if (a1 && b1) return driveTrue(sim);
+    int n = comp.numReceivers();
+    if (n >= 2) {
+        auto* pin = const_cast<Component&>(comp).getReceiver(n - 2);
+        if (pin && pin->isConnected()) return pin->getState();
+    }
+    return comp.getSimulator() ? vddLevel(*comp.getSimulator()) : State::HIGH;
+}
+
+State gndLevel(const Component& comp)
+{
+    int n = comp.numReceivers();
+    if (n >= 1) {
+        auto* pin = const_cast<Component&>(comp).getReceiver(n - 1);
+        if (pin && pin->isConnected()) return pin->getState();
+    }
+    return comp.getSimulator() ? gndLevel(*comp.getSimulator()) : State::LOW;
+}
+
+State driveTrue(const Component& comp)  { return vddLevel(comp); }
+State driveFalse(const Component& comp) { return gndLevel(comp); }
+
+bool readAsTrue(State s, const Component& comp)  { return s == vddLevel(comp); }
+bool readAsFalse(State s, const Component& comp) { return s == gndLevel(comp); }
+
+State resolveAndRail(State a, State b, const Component& comp)
+{
+    bool a1 = readAsTrue(a, comp), a0 = readAsFalse(a, comp);
+    bool b1 = readAsTrue(b, comp), b0 = readAsFalse(b, comp);
+    if (a0 || b0) return driveFalse(comp);
+    if (a1 && b1) return driveTrue(comp);
     if (a == State::UNDEFINED || b == State::UNDEFINED) return State::UNDEFINED;
     return State::FLOATING;
 }
 
-State resolveOrRail(State a, State b, const Simulator& sim)
+State resolveOrRail(State a, State b, const Component& comp)
 {
-    bool a1 = readAsTrue(a, sim), a0 = readAsFalse(a, sim);
-    bool b1 = readAsTrue(b, sim), b0 = readAsFalse(b, sim);
-    if (a1 || b1) return driveTrue(sim);
-    if (a0 && b0) return driveFalse(sim);
+    bool a1 = readAsTrue(a, comp), a0 = readAsFalse(a, comp);
+    bool b1 = readAsTrue(b, comp), b0 = readAsFalse(b, comp);
+    if (a1 || b1) return driveTrue(comp);
+    if (a0 && b0) return driveFalse(comp);
     if (a == State::UNDEFINED || b == State::UNDEFINED) return State::UNDEFINED;
     return State::FLOATING;
 }
 
-State resolveXorRail(State a, State b, const Simulator& sim)
+State resolveXorRail(State a, State b, const Component& comp)
 {
+    bool a1 = readAsTrue(a, comp), a0 = readAsFalse(a, comp);
+    bool b1 = readAsTrue(b, comp), b0 = readAsFalse(b, comp);
+    if ((a1 || a0) && (b1 || b0)) {
+        return (a1 != b1) ? driveTrue(comp) : driveFalse(comp);
+    }
     if (a == State::UNDEFINED || b == State::UNDEFINED) return State::UNDEFINED;
-    if (a == State::FLOATING  || b == State::FLOATING)  return State::FLOATING;
-    bool a1 = readAsTrue(a, sim);
-    bool b1 = readAsTrue(b, sim);
-    return (a1 != b1) ? driveTrue(sim) : driveFalse(sim);
+    return State::FLOATING;
 }
 
-State invertRail(State s, const Simulator& sim)
+State invertRail(State s, const Component& comp)
 {
-    if (readAsTrue(s, sim))  return driveFalse(sim);
-    if (readAsFalse(s, sim)) return driveTrue(sim);
-    if (s == State::FLOATING)  return State::UNDEFINED;
-    return State::UNDEFINED;
+    if (readAsTrue(s, comp))  return driveFalse(comp);
+    if (readAsFalse(s, comp)) return driveTrue(comp);
+    if (s == State::UNDEFINED) return State::UNDEFINED;
+    return State::FLOATING;
 }
 
 const char* stateLabel(State s, const Simulator& sim)
@@ -61,11 +86,11 @@ const char* stateLabel(State s, const Simulator& sim)
 
 unsigned int stateColorRail(State s, const Simulator& sim)
 {
-    if (readAsTrue(s, sim))  return 0xFF4CAF50; // green  – VDD level
-    if (readAsFalse(s, sim)) return 0xFF2196F3; // blue   – GND level
+    if (readAsTrue(s, sim))  return 0xFF50AF4C; // green  – VDD level
+    if (readAsFalse(s, sim)) return 0xFFF39621; // blue   – GND level
     switch (s) {
         case State::FLOATING:  return 0xFF787878;
-        case State::UNDEFINED: return 0xFFF44336;
+        case State::UNDEFINED: return 0xFF3643F4;
         default:               return 0xFFFFFFFF;
     }
 }
