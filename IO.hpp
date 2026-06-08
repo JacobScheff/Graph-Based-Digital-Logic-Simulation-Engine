@@ -253,3 +253,41 @@ public:
         }
     }
 };
+
+// ─── Register: N-bit D flip-flop ──────────────────────────────────────────────
+class Register : public Component
+{
+public:
+    explicit Register(int width = 4)
+        : Component("REG", width + 1, width, 1)
+    {
+        setBusWidth(width);
+        state.resize(width, State::LOW);
+    }
+
+    void update() override {
+        if (!getSimulator()) return;
+        
+        State clkState = receivers[getBusWidth()]->getState();
+        bool clk = readAsTrue(clkState, *this);
+        
+        if (clk && !lastClk) {
+            // Rising edge: latch inputs
+            for (int i = 0; i < getBusWidth(); ++i) {
+                State s = receivers[i]->getState();
+                state[i] = readAsTrue(s, *this) ? driveTrue(*this) :
+                           readAsFalse(s, *this) ? driveFalse(*this) : s;
+            }
+        }
+        lastClk = clk;
+        
+        // Output latched state
+        for (int i = 0; i < getBusWidth(); ++i) {
+            drivers[i]->setState(state[i]);
+        }
+    }
+
+private:
+    std::vector<State> state;
+    bool lastClk = false;
+};

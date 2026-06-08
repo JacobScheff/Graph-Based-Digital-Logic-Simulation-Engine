@@ -272,6 +272,7 @@ void App::renderPalette()
         paletteBtn("NOR",  "NOR",  "NOR gate \xe2\x80\x93 2 in, 1 out");
         paletteBtn("XOR",  "XOR",  "XOR gate \xe2\x80\x93 2 in, 1 out");
         paletteBtn("XNOR", "XNOR", "XNOR gate \xe2\x80\x93 2 in, 1 out");
+        busPaletteBtn("Register", "REG", "N-bit register (rising edge clock)");
         ImGui::Spacing();
         ImGui::Unindent(4.f);
     }
@@ -485,7 +486,7 @@ void App::renderProperties()
             stateLabel(led->getLitState(), sim));
     }
 
-    if (type == "BUS_MERGE" || type == "BUS_SPLIT") {
+    if (type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG") {
         int bw = comp->getBusWidth();
         ImGui::Text("Bus width: %d bits", bw);
         ImGui::TextDisabled("(delete and re-place to change)");

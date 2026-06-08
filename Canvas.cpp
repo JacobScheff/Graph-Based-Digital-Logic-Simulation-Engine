@@ -169,7 +169,7 @@ ImVec2 Canvas::endpointPos(const Endpoint& ep, ImVec2 origin, ImVec2 canvasSize)
 
 bool Canvas::isBusComponent(const std::string& type) const
 {
-    return type == "BUS_MERGE" || type == "BUS_SPLIT";
+    return type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG";
 }
 
 int Canvas::componentBusWidth(const ComponentView& cv) const
@@ -200,6 +200,7 @@ std::unique_ptr<Component> Canvas::makeComponent(const std::string& type, int bu
     if (type == "JUNCTION") return std::make_unique<Junction>();
     if (type == "BUS_MERGE") return std::make_unique<BusMerge>(busWidth);
     if (type == "BUS_SPLIT") return std::make_unique<BusSplit>(busWidth);
+    if (type == "REG")       return std::make_unique<Register>(busWidth);
     return nullptr;
 }
 
@@ -235,11 +236,14 @@ ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth)
     } else if (type == "BUS_MERGE" || type == "BUS_SPLIT") {
         numReceivers = busWidth;
         numDrivers = busWidth;
+    } else if (type == "REG") {
+        numReceivers = busWidth + 1; // data bus + clock
+        numDrivers = busWidth;
     }
     
     int maxPins = std::max(numReceivers, numDrivers);
     float h = std::max(50.f, float(maxPins + 1) * PIN_SPACE);
-    if (type == "BUS_MERGE" || type == "BUS_SPLIT") {
+    if (type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG") {
         h = std::max(h, float(busWidth + 1) * PIN_SPACE);
     }
     return { COMP_W, h };
@@ -797,7 +801,7 @@ int Canvas::hitDriverPin(ImVec2 wp, int& outId, bool busSide) const
                 return 0;
             }
         }
-        if (!busSide && cv.typeName == "BUS_MERGE") continue;
+        if (!busSide && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG")) continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
             ImVec2 p = driverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
@@ -1051,6 +1055,15 @@ static const char* pinLabel(const std::string& type, bool isInput, int idx, int 
             std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
             return buf;
         }
+        if (type == "REG") {
+            if (idx == busWidth) return "CLK";
+            if (idx == 0) {
+                static char buf[16];
+                std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
+                return buf;
+            }
+            return "";
+        }
     } else {
         if (type == "BUS_MERGE") {
             static char buf[16];
@@ -1061,6 +1074,14 @@ static const char* pinLabel(const std::string& type, bool isInput, int idx, int 
             static char buf[8];
             std::snprintf(buf, sizeof(buf), "%d", idx);
             return buf;
+        }
+        if (type == "REG") {
+            if (idx == 0) {
+                static char buf[16];
+                std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
+                return buf;
+            }
+            return "";
         }
     }
     return "";
@@ -1126,9 +1147,9 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     int bw = componentBusWidth(cv);
 
     for (int i = 0; i < cv.comp->numReceivers(); ++i) {
-        if (cv.typeName == "BUS_SPLIT" && i > 0) continue;
+        if ((cv.typeName == "BUS_SPLIT" || cv.typeName == "REG") && i > 0 && i < bw) continue;
         ImVec2 tip, edge;
-        if (isBusComponent(cv.typeName) && i == 0 && cv.typeName == "BUS_SPLIT") {
+        if (isBusComponent(cv.typeName) && i == 0 && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG")) {
             tip  = w2s(busReceiverPos(cv), origin);
             edge = w2s({cv.pos.x, busReceiverPos(cv).y}, origin);
         } else {
@@ -1137,8 +1158,8 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         }
         State st  = cv.comp->getReceiver(i)->getState();
         ImU32 col = stateColor(st);
-        float lw  = (isBusComponent(cv.typeName) && cv.typeName == "BUS_SPLIT" && i == 0)
-                    ? 4.f * zoom : 2.f * zoom;
+        float lw  = (isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG") && i == 0)
+                    ? 4.f * zoom : 2.2f * zoom;
         dl->AddLine(edge, tip, col, lw);
         dl->AddCircleFilled(tip, PIN_RAD * zoom, col);
  
@@ -1163,9 +1184,9 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     }
 
     for (int i = 0; i < cv.comp->numDrivers(); ++i) {
-        if (cv.typeName == "BUS_MERGE" && i > 0) continue;
+        if ((cv.typeName == "BUS_MERGE" || cv.typeName == "REG") && i > 0) continue;
         ImVec2 tip, edge;
-        if (isBusComponent(cv.typeName) && i == 0 && cv.typeName == "BUS_MERGE") {
+        if (isBusComponent(cv.typeName) && i == 0 && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG")) {
             tip  = w2s(busDriverPos(cv), origin);
             edge = w2s({cv.pos.x + cv.size.x, busDriverPos(cv).y}, origin);
         } else {
@@ -1174,8 +1195,8 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         }
         State st  = cv.comp->getDriver(i)->getState();
         ImU32 col = stateColor(st);
-        float lw  = (isBusComponent(cv.typeName) && cv.typeName == "BUS_MERGE" && i == 0)
-                    ? 4.f * zoom : 2.f * zoom;
+        float lw  = (isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG") && i == 0)
+                    ? 4.f * zoom : 2.2f * zoom;
         dl->AddLine(edge, tip, col, lw);
         dl->AddCircleFilled(tip, PIN_RAD * zoom, col);
 
@@ -1438,9 +1459,9 @@ void Canvas::render()
                 auto* dstCv = findComp(compId);
                 auto* srcCv = wireSrc.kind == EndpointKind::Component
                               ? findComp(wireSrc.compId) : nullptr;
-                if (dstCv && dstCv->typeName == "BUS_SPLIT" && pinIdx == 0)
+                if (dstCv && (dstCv->typeName == "BUS_SPLIT" || dstCv->typeName == "REG") && pinIdx == 0)
                     bw = dstCv->busWidth;
-                else if (srcCv && srcCv->typeName == "BUS_MERGE")
+                else if (srcCv && (srcCv->typeName == "BUS_MERGE" || srcCv->typeName == "REG"))
                     bw = srcCv->busWidth;
                 completeWire(wireSrc, dst, bw);
             } else {
