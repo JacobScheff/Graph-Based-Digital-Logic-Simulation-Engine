@@ -8,22 +8,36 @@ State gndLevel(const Simulator& sim) { return sim.getGndNet()->getState(); }
 bool  readAsTrue(State s, const Simulator& sim)  { return s == vddLevel(sim); }
 bool  readAsFalse(State s, const Simulator& sim) { return s == gndLevel(sim); }
 
+static bool componentHasPowerPins(const Component& comp)
+{
+    const std::string& type = comp.getName();
+    if (type == "SW" || type == "BTN" || type == "LED" || 
+        type == "NUM_IN" || type == "NUM_DISP" || type == "JUNCTION" || 
+        type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG")
+        return false;
+    return true;
+}
+
 State vddLevel(const Component& comp)
 {
-    int n = comp.numReceivers();
-    if (n >= 2) {
-        auto* pin = const_cast<Component&>(comp).getReceiver(n - 2);
-        if (pin && pin->isConnected()) return pin->getState();
+    if (componentHasPowerPins(comp)) {
+        int n = comp.numReceivers();
+        if (n >= 2) {
+            auto* pin = const_cast<Component&>(comp).getReceiver(n - 2);
+            if (pin && pin->isConnected()) return pin->getState();
+        }
     }
     return comp.getSimulator() ? vddLevel(*comp.getSimulator()) : State::HIGH;
 }
 
 State gndLevel(const Component& comp)
 {
-    int n = comp.numReceivers();
-    if (n >= 1) {
-        auto* pin = const_cast<Component&>(comp).getReceiver(n - 1);
-        if (pin && pin->isConnected()) return pin->getState();
+    if (componentHasPowerPins(comp)) {
+        int n = comp.numReceivers();
+        if (n >= 1) {
+            auto* pin = const_cast<Component&>(comp).getReceiver(n - 1);
+            if (pin && pin->isConnected()) return pin->getState();
+        }
     }
     return comp.getSimulator() ? gndLevel(*comp.getSimulator()) : State::LOW;
 }
