@@ -215,7 +215,7 @@ ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth)
         numReceivers = 4;
         numDrivers = 1;
     } else if (type == "SW" || type == "BTN") {
-        numReceivers = 1;
+        numReceivers = 0;
         numDrivers = 1;
     } else if (type == "CLK") {
         numReceivers = 2;

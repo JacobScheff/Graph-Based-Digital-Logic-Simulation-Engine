@@ -20,7 +20,7 @@ public:
 class Switch : public Component
 {
 public:
-    Switch() : Component("SW", 1, 1)
+    Switch() : Component("SW", 0, 1)
     {
         setOutput(false);
     }
@@ -42,11 +42,7 @@ public:
     void onRegistered() override { setOutput(outputOn); }
 
     void update() override {
-        if (outputOn) {
-            drivers[0]->setState(receivers[0]->getState());
-        } else {
-            drivers[0]->setState(State::FLOATING);
-        }
+        drivers[0]->setState(outputOn ? driveTrue(*this) : driveFalse(*this));
     }
 
 private:
@@ -57,7 +53,7 @@ private:
 class Button : public Component
 {
 public:
-    Button() : Component("BTN", 1, 1)
+    Button() : Component("BTN", 0, 1)
     {
         release();
     }
@@ -81,11 +77,7 @@ public:
 
     bool isPressed() const { return pressed; }
     void update() override {
-        if (pressed) {
-            drivers[0]->setState(receivers[0]->getState());
-        } else {
-            drivers[0]->setState(State::FLOATING);
-        }
+        drivers[0]->setState(pressed ? driveTrue(*this) : driveFalse(*this));
     }
 
 private:
