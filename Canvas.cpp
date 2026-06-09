@@ -2233,6 +2233,17 @@ void Canvas::render()
                 goto end_click;
             }
 
+            // Check Rail
+            bool railVdd; float railX;
+            if (hitRailTap(wp, origin, size, railVdd, railX)) {
+                wireSrc.kind = EndpointKind::Rail;
+                wireSrc.railIsVdd = railVdd;
+                wireSrc.railX = railX;
+                currentWireWaypoints.clear();
+                mode = Mode::DrawingWire;
+                goto end_click;
+            }
+
             // Check junction
             int jId = hitJunction(wp);
             if (jId >= 0) {
