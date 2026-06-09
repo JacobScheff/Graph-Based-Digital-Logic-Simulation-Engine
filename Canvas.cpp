@@ -111,7 +111,7 @@ void Canvas::initPinLayouts(ComponentView& cv)
             for (int b = 0; b < p.busWidth; ++b) {
                 PinLayout pl;
                 pl.side = p.side;
-                pl.t = float(startOnSide + b + 1) / float(totalOnSide + 1);
+                pl.t = float(totalOnSide - (startOnSide + b)) / float(totalOnSide + 1);
                 cv.receiverLayout.push_back(pl);
             }
         }
@@ -128,7 +128,7 @@ void Canvas::initPinLayouts(ComponentView& cv)
             for (int b = 0; b < p.busWidth; ++b) {
                 PinLayout pl;
                 pl.side = p.side;
-                pl.t = float(startOnSide + b + 1) / float(totalOnSide + 1);
+                pl.t = float(totalOnSide - (startOnSide + b)) / float(totalOnSide + 1);
                 cv.driverLayout.push_back(pl);
             }
         }
@@ -150,7 +150,7 @@ void Canvas::initPinLayouts(ComponentView& cv)
         int nRegular = nRcv - 2;
         for (int i = 0; i < nRegular; ++i) {
             cv.receiverLayout[i].side = 0; // Left
-            cv.receiverLayout[i].t = float(i + 1) / float(nRegular + 1);
+            cv.receiverLayout[i].t = float(nRegular - i) / float(nRegular + 1);
         }
         // VDD on top center
         cv.receiverLayout[nRcv - 2].side = 1;
@@ -161,7 +161,7 @@ void Canvas::initPinLayouts(ComponentView& cv)
     } else {
         for (int i = 0; i < nRcv; ++i) {
             cv.receiverLayout[i].side = 0; // Left
-            cv.receiverLayout[i].t = float(i + 1) / float(nRcv + 1);
+            cv.receiverLayout[i].t = float(nRcv - i) / float(nRcv + 1);
         }
     }
 
@@ -169,7 +169,7 @@ void Canvas::initPinLayouts(ComponentView& cv)
     cv.driverLayout.resize(nDrv);
     for (int i = 0; i < nDrv; ++i) {
         cv.driverLayout[i].side = 2; // Right
-        cv.driverLayout[i].t = float(i + 1) / float(nDrv + 1);
+        cv.driverLayout[i].t = float(nDrv - i) / float(nDrv + 1);
     }
 }
 
@@ -900,8 +900,16 @@ void Canvas::deleteSelected()
     for (const auto& j : junctions) {
         if (j.selected) junctionsToDelete.push_back(j.id);
     }
-    for (const auto& w : wires) {
+    for (auto& w : wires) {
         if (w.selected) wiresToDelete.push_back(w.id);
+        else {
+            for (int i = (int)w.waypointSelected.size() - 1; i >= 0; --i) {
+                if (w.waypointSelected[i]) {
+                    w.waypoints.erase(w.waypoints.begin() + i);
+                    w.waypointSelected.erase(w.waypointSelected.begin() + i);
+                }
+            }
+        }
     }
 
     if (compsToDelete.empty() && selectedId >= 0) {
@@ -1322,27 +1330,8 @@ std::vector<ImVec2> Canvas::routeWire(ImVec2 src, ImVec2 dst,
         return pts;
     }
 
-    // Auto Manhattan routing (original logic)
-    if (srcEp.kind == EndpointKind::Rail) {
-        return { src, {dst.x, src.y}, dst };
-    }
-    if (dstEp.kind == EndpointKind::Rail) {
-        return { src, {src.x, dst.y}, dst };
-    }
-
-    if (src.x < dst.x - 5.f) {
-        float mx = (src.x + dst.x) * 0.5f;
-        return { src, {mx, src.y}, {mx, dst.y}, dst };
-    } else {
-        float bypass = 28.f;
-        float my     = (src.y + dst.y) * 0.5f;
-        return { src,
-                 {src.x + bypass, src.y},
-                 {src.x + bypass, my},
-                 {dst.x - bypass, my},
-                 {dst.x - bypass, dst.y},
-                 dst };
-    }
+    // Return a straight line if there are no user-defined waypoints
+    return { src, dst };
 }
 
 // ─── Drawing: Grid ────────────────────────────────────────────────────────────
@@ -1799,7 +1788,8 @@ void Canvas::drawAllWires(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
             for (int i = 0; i < (int)wv.waypoints.size(); ++i) {
                 ImVec2 p = w2s(wv.waypoints[i], origin);
                 float hs = 4.f * zoom; // half-size of handle
-                ImU32 handleCol = wv.selected ? IM_COL32(80, 190, 200, 255) : IM_COL32(200, 200, 220, 200);
+                bool wpSelected = (i < (int)wv.waypointSelected.size() && wv.waypointSelected[i]);
+                ImU32 handleCol = wpSelected ? IM_COL32(255, 100, 100, 255) : (wv.selected ? IM_COL32(80, 190, 200, 255) : IM_COL32(200, 200, 220, 200));
                 // Diamond shape
                 ImVec2 pts4[4] = {
                     {p.x, p.y - hs},
@@ -1819,8 +1809,8 @@ void Canvas::drawWireInProgress(ImDrawList* dl, ImVec2 origin, ImVec2 size, ImVe
     if (mode != Mode::DrawingWire) return;
 
     ImVec2 srcW = endpointPos(wireSrc, origin, size);
-    ImVec2 dstW = s2w(mouseSS, origin);
-    auto   pts  = routeWire(srcW, dstW, wireSrc, Endpoint{});
+    ImVec2 dstW = snapToGrid(s2w(mouseSS, origin)); // Snap drawing endpoint
+    auto   pts  = routeWire(srcW, dstW, wireSrc, Endpoint{}, currentWireWaypoints);
 
     ImU32 col = IM_COL32(80, 200, 210, 200);
     for (size_t i = 1; i < pts.size(); ++i)
@@ -2035,73 +2025,83 @@ void Canvas::render()
         }
     }
 
-    // ── Right-click → context menu ──
+    // ── Right-click → context menu / Cancel drawing ──
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-        ImVec2 wp = s2w(mousePos, origin);
-        int jId = hitJunction(wp);
-        if (jId >= 0) {
-            rightClickedJunctionId = jId;
-            rightClickedCompId = -1;
-            rightClickedWireId = -1;
-            auto* j = findJunction(jId);
-            if (j && !j->selected) {
-                bool shiftHeld = ImGui::GetIO().KeyShift;
-                if (!shiftHeld) {
-                    for (auto& c : comps) c.selected = false;
-                    for (auto& jc : junctions) jc.selected = false;
-                    for (auto& w : wires) w.selected = false;
-                    selectedId = -1;
-                }
-                j->selected = true;
+        if (mode == Mode::DrawingWire) {
+            // Right click while drawing: undo last waypoint or cancel
+            if (!currentWireWaypoints.empty()) {
+                currentWireWaypoints.pop_back();
+            } else {
+                mode = Mode::Idle;
+                currentWireWaypoints.clear();
             }
-            ImGui::OpenPopup("##canvas_context_menu");
         } else {
-            int compId = hitComp(wp);
-            if (compId >= 0) {
-                rightClickedCompId = compId;
-                rightClickedJunctionId = -1;
+            ImVec2 wp = s2w(mousePos, origin);
+            int jId = hitJunction(wp);
+            if (jId >= 0) {
+                rightClickedJunctionId = jId;
+                rightClickedCompId = -1;
                 rightClickedWireId = -1;
-                auto* cv = findComp(compId);
-                if (cv && !cv->selected) {
+                auto* j = findJunction(jId);
+                if (j && !j->selected) {
                     bool shiftHeld = ImGui::GetIO().KeyShift;
                     if (!shiftHeld) {
                         for (auto& c : comps) c.selected = false;
                         for (auto& jc : junctions) jc.selected = false;
                         for (auto& w : wires) w.selected = false;
+                        selectedId = -1;
                     }
-                    cv->selected = true;
-                    selectedId = compId;
+                    j->selected = true;
                 }
                 ImGui::OpenPopup("##canvas_context_menu");
             } else {
-                ImVec2 jPos;
-                int wireId = hitWire(wp, origin, size, jPos);
-                if (wireId >= 0) {
-                    rightClickedWireId = wireId;
-                    rightClickedWireJunctionPos = jPos;
-                    rightClickedCompId = -1;
+                int compId = hitComp(wp);
+                if (compId >= 0) {
+                    rightClickedCompId = compId;
                     rightClickedJunctionId = -1;
-                    for (auto& w : wires) {
-                        if (w.id == wireId) {
-                            if (!w.selected) {
-                                bool shiftHeld = ImGui::GetIO().KeyShift;
-                                if (!shiftHeld) {
-                                    for (auto& c : comps) c.selected = false;
-                                    for (auto& jc : junctions) jc.selected = false;
-                                    for (auto& wr : wires) wr.selected = false;
-                                    selectedId = -1;
-                                }
-                                w.selected = true;
-                            }
-                            break;
+                    rightClickedWireId = -1;
+                    auto* cv = findComp(compId);
+                    if (cv && !cv->selected) {
+                        bool shiftHeld = ImGui::GetIO().KeyShift;
+                        if (!shiftHeld) {
+                            for (auto& c : comps) c.selected = false;
+                            for (auto& jc : junctions) jc.selected = false;
+                            for (auto& w : wires) w.selected = false;
                         }
+                        cv->selected = true;
+                        selectedId = compId;
                     }
                     ImGui::OpenPopup("##canvas_context_menu");
                 } else {
-                    rightClickedCompId = -1;
-                    rightClickedJunctionId = -1;
-                    rightClickedWireId = -1;
-                    ImGui::OpenPopup("##canvas_context_menu");
+                    ImVec2 jPos;
+                    int wireId = hitWire(wp, origin, size, jPos);
+                    if (wireId >= 0) {
+                        rightClickedWireId = wireId;
+                        rightClickedWireJunctionPos = jPos;
+                        rightClickedCompId = -1;
+                        rightClickedJunctionId = -1;
+                        for (auto& w : wires) {
+                            if (w.id == wireId) {
+                                if (!w.selected) {
+                                    bool shiftHeld = ImGui::GetIO().KeyShift;
+                                    if (!shiftHeld) {
+                                        for (auto& c : comps) c.selected = false;
+                                        for (auto& jc : junctions) jc.selected = false;
+                                        for (auto& wr : wires) wr.selected = false;
+                                        selectedId = -1;
+                                    }
+                                    w.selected = true;
+                                }
+                                break;
+                            }
+                        }
+                        ImGui::OpenPopup("##canvas_context_menu");
+                    } else {
+                        rightClickedCompId = -1;
+                        rightClickedJunctionId = -1;
+                        rightClickedWireId = -1;
+                        ImGui::OpenPopup("##canvas_context_menu");
+                    }
                 }
             }
         }
@@ -2135,6 +2135,9 @@ void Canvas::render()
                 else if (srcCv && (srcCv->typeName == "BUS_MERGE" || srcCv->typeName == "REG"))
                     bw = srcCv->busWidth;
                 completeWire(wireSrc, dst, bw);
+                if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
+                currentWireWaypoints.clear();
+                mode = Mode::Idle;
             } else {
                 pinIdx = hitReceiverPin(wp, compId, false);
                 if (pinIdx >= 0) {
@@ -2142,6 +2145,9 @@ void Canvas::render()
                     dst.compId = compId;
                     dst.pinIdx = pinIdx;
                     completeWire(wireSrc, dst, 1);
+                    if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
+                    currentWireWaypoints.clear();
+                    mode = Mode::Idle;
                 } else {
                     bool railVdd; float railX;
                     if (hitRailTap(wp, origin, size, railVdd, railX)) {
@@ -2149,53 +2155,67 @@ void Canvas::render()
                         dst.railIsVdd = railVdd;
                         dst.railX = railX;
                         completeWire(wireSrc, dst, 1);
+                        if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
+                        currentWireWaypoints.clear();
+                        mode = Mode::Idle;
                     } else {
                         int jId = hitJunction(wp);
                         if (jId >= 0) {
                             dst.kind = EndpointKind::Junction;
                             dst.junctionId = jId;
                             completeWire(wireSrc, dst, 1);
+                            if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
+                            currentWireWaypoints.clear();
+                            mode = Mode::Idle;
                         } else {
-                            // ── Wire splitting: click on existing wire to branch ──
+                            // Wire splitting: click on existing wire to connect
                             ImVec2 wirePos;
                             int targetWire = hitWire(wp, origin, size, wirePos);
                             if (targetWire >= 0) {
-                                // Insert a junction on the target wire, then connect
                                 insertJunctionOnWire(targetWire, wirePos);
                                 if (!junctions.empty()) {
                                     dst.kind = EndpointKind::Junction;
                                     dst.junctionId = junctions.back().id;
                                     completeWire(wireSrc, dst, 1);
+                                    if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
+                                    currentWireWaypoints.clear();
+                                    mode = Mode::Idle;
                                 }
+                            } else {
+                                // Clicked empty space while drawing wire! Drop waypoint.
+                                currentWireWaypoints.push_back(snapToGrid(wp));
                             }
                         }
                     }
                 }
             }
-            mode = Mode::Idle;
 
         } else {
             // Idle mode clicks
             int compId, pinIdx;
-
-            // ── Alt+click on pin → drag pin around component edge ──
-            if (ImGui::GetIO().KeyAlt) {
-                int pCompId, pPinIdx;
-                bool pIsDriver;
-                if (hitAnyPin(wp, pCompId, pPinIdx, pIsDriver) >= 0) {
-                    draggingPinCompId = pCompId;
-                    draggingPinIdx = pPinIdx;
-                    draggingPinIsDriver = pIsDriver;
-                    mode = Mode::DraggingPin;
-                    goto end_click;
-                }
-            }
 
             // Check waypoint first
             {
                 int wpIdx;
                 int wId = hitWaypoint(wp, origin, size, wpIdx);
                 if (wId >= 0) {
+                    bool shiftHeld = ImGui::GetIO().KeyShift;
+                    if (!shiftHeld) {
+                        for (auto& c : comps) c.selected = false;
+                        for (auto& jc : junctions) jc.selected = false;
+                        for (auto& w : wires) {
+                            w.selected = false;
+                            for (size_t i = 0; i < w.waypointSelected.size(); ++i) w.waypointSelected[i] = false;
+                        }
+                    }
+                    for (auto& w : wires) {
+                        if (w.id == wId) {
+                            if (w.waypointSelected.size() != w.waypoints.size()) w.waypointSelected.resize(w.waypoints.size(), false);
+                            w.waypointSelected[wpIdx] = shiftHeld ? !w.waypointSelected[wpIdx] : true;
+                            break;
+                        }
+                    }
+
                     draggingWireId = wId;
                     draggingWaypointIdx = wpIdx;
                     mode = Mode::DraggingWaypoint;
@@ -2203,121 +2223,167 @@ void Canvas::render()
                 }
             }
 
-            // Driver pin → start wire
-            pinIdx = hitDriverPin(wp, compId, true);
-            if (pinIdx >= 0) {
-                wireSrc.kind = EndpointKind::Component;
-                wireSrc.compId = compId;
-                wireSrc.pinIdx = pinIdx;
-                wireSrc.isDriver = true;
-                mode = Mode::DrawingWire;
-            } else {
-                pinIdx = hitDriverPin(wp, compId, false);
-                if (pinIdx >= 0) {
-                    wireSrc.kind = EndpointKind::Component;
-                    wireSrc.compId = compId;
-                    wireSrc.pinIdx = pinIdx;
-                    wireSrc.isDriver = true;
-                    mode = Mode::DrawingWire;
+            // Check Pin (driver or receiver) -> PendingPinAction
+            bool isDriver;
+            if (hitAnyPin(wp, compId, pinIdx, isDriver) >= 0) {
+                draggingPinCompId = compId;
+                draggingPinIdx = pinIdx;
+                draggingPinIsDriver = isDriver;
+                mode = Mode::PendingPinAction;
+                goto end_click;
+            }
+
+            // Check junction
+            int jId = hitJunction(wp);
+            if (jId >= 0) {
+                auto* j = findJunction(jId);
+                bool shiftHeld = ImGui::GetIO().KeyShift;
+                if (!j->selected) {
+                    if (!shiftHeld) {
+                        for (auto& c : comps) c.selected = false;
+                        for (auto& jc : junctions) jc.selected = false;
+                    }
+                    j->selected = true;
+                }
+                mode = Mode::DraggingComp;
+                dragStartMouse = wp;
+                
+                dragStartComps.clear();
+                dragStartJunctions.clear();
+                for (const auto& c : comps) {
+                    if (c.selected) dragStartComps.push_back({c.id, c.pos});
+                }
+                for (const auto& jc : junctions) {
+                    if (jc.selected) dragStartJunctions.push_back({jc.id, jc.pos});
+                }
+                goto end_click;
+            }
+
+            // Check comp
+            int hit = hitComp(wp);
+            if (hit >= 0) {
+                auto* cv = findComp(hit);
+                if (cv->typeName == "BTN") {
+                    tryHandleComponentClick(hit, true, false);
+                    pressedButtonId = hit;
+                    mode = Mode::PressingButton;
                 } else {
-                    bool railVdd; float railX;
-                    if (hitRailTap(wp, origin, size, railVdd, railX)) {
-                        wireSrc.kind = EndpointKind::Rail;
-                        wireSrc.railIsVdd = railVdd;
-                        wireSrc.railX = railX;
-                        mode = Mode::DrawingWire;
-                    } else {
-                        int jId = hitJunction(wp);
-                        if (jId >= 0) {
-                            auto* j = findJunction(jId);
-                            bool shiftHeld = ImGui::GetIO().KeyShift;
-                            if (!j->selected) {
-                                if (!shiftHeld) {
-                                    for (auto& c : comps) c.selected = false;
-                                    for (auto& jc : junctions) jc.selected = false;
-                                }
-                                j->selected = true;
-                            }
-                            mode = Mode::DraggingComp;
-                            dragStartMouse = wp;
-                            
-                            dragStartComps.clear();
-                            dragStartJunctions.clear();
-                            for (const auto& c : comps) {
-                                if (c.selected) dragStartComps.push_back({c.id, c.pos});
-                            }
-                            for (const auto& jc : junctions) {
-                                if (jc.selected) dragStartJunctions.push_back({jc.id, jc.pos});
-                            }
-                        } else {
-                            int hit = hitComp(wp);
-                            if (hit >= 0) {
-                                auto* cv = findComp(hit);
-                                if (cv->typeName == "BTN") {
-                                    tryHandleComponentClick(hit, true, false);
-                                    pressedButtonId = hit;
-                                    mode = Mode::PressingButton;
-                                } else {
-                                    bool shiftHeld = ImGui::GetIO().KeyShift;
-                                    if (!cv->selected) {
-                                        if (!shiftHeld) {
-                                            for (auto& c : comps) c.selected = false;
-                                            for (auto& jc : junctions) jc.selected = false;
-                                            for (auto& w : wires) w.selected = false;
-                                        }
-                                        cv->selected = true;
-                                    }
-                                    selectedId = hit;
-                                    mode = Mode::DraggingComp;
-                                    dragStartMouse = wp;
-                                    
-                                    dragStartComps.clear();
-                                    dragStartJunctions.clear();
-                                    for (const auto& c : comps) {
-                                        if (c.selected) dragStartComps.push_back({c.id, c.pos});
-                                    }
-                                    for (const auto& jc : junctions) {
-                                        if (jc.selected) dragStartJunctions.push_back({jc.id, jc.pos});
-                                    }
-                                }
-                            } else {
-                                ImVec2 wirePos;
-                                int wId = hitWire(wp, origin, size, wirePos);
-                                if (wId >= 0) {
-                                    bool shiftHeld = ImGui::GetIO().KeyShift;
-                                    if (!shiftHeld) {
-                                        for (auto& c : comps) c.selected = false;
-                                        for (auto& jc : junctions) jc.selected = false;
-                                        for (auto& w : wires) {
-                                            if (w.id != wId) w.selected = false;
-                                        }
-                                        selectedId = -1;
-                                    }
-                                    for (auto& w : wires) {
-                                        if (w.id == wId) {
-                                            w.selected = shiftHeld ? !w.selected : true;
-                                            break;
-                                        }
-                                    }
-                                } else {
-                                    // Empty space → start region selection
-                                    bool shiftHeld = ImGui::GetIO().KeyShift;
-                                    if (!shiftHeld) {
-                                        for (auto& c : comps) c.selected = false;
-                                        for (auto& jc : junctions) jc.selected = false;
-                                        for (auto& w : wires) w.selected = false;
-                                        selectedId = -1;
-                                    }
-                                    mode = Mode::SelectingRegion;
-                                }
-                            }
+                    bool shiftHeld = ImGui::GetIO().KeyShift;
+                    if (!cv->selected) {
+                        if (!shiftHeld) {
+                            for (auto& c : comps) c.selected = false;
+                            for (auto& jc : junctions) jc.selected = false;
+                            for (auto& w : wires) w.selected = false;
                         }
+                        cv->selected = true;
+                    }
+                    selectedId = hit;
+                    mode = Mode::DraggingComp;
+                    dragStartMouse = wp;
+                    
+                    dragStartComps.clear();
+                    dragStartJunctions.clear();
+                    for (const auto& c : comps) {
+                        if (c.selected) dragStartComps.push_back({c.id, c.pos});
+                    }
+                    for (const auto& jc : junctions) {
+                        if (jc.selected) dragStartJunctions.push_back({jc.id, jc.pos});
                     }
                 }
+                goto end_click;
             }
+
+            // Check wire -> PendingWireBranch (if Ctrl is held) or Select
+            ImVec2 wirePos;
+            int wId = hitWire(wp, origin, size, wirePos);
+            if (wId >= 0) {
+                if (ImGui::GetIO().KeyCtrl) {
+                    pendingWireBranchId = wId;
+                    pendingWireBranchPos = wirePos;
+                    mode = Mode::PendingWireBranch;
+                } else {
+                    bool shiftHeld = ImGui::GetIO().KeyShift;
+                    if (!shiftHeld) {
+                        for (auto& c : comps) c.selected = false;
+                        for (auto& jc : junctions) jc.selected = false;
+                        for (auto& w : wires) {
+                            if (w.id != wId) w.selected = false;
+                        }
+                        selectedId = -1;
+                    }
+                    for (auto& w : wires) {
+                        if (w.id == wId) {
+                            w.selected = shiftHeld ? !w.selected : true;
+                            break;
+                        }
+                    }
+                    mode = Mode::Idle;
+                }
+                goto end_click;
+            }
+
+            // Empty space → start region selection
+            bool shiftHeld = ImGui::GetIO().KeyShift;
+            if (!shiftHeld) {
+                for (auto& c : comps) c.selected = false;
+                for (auto& jc : junctions) jc.selected = false;
+                for (auto& w : wires) w.selected = false;
+                selectedId = -1;
+            }
+            mode = Mode::SelectingRegion;
         }
     }
     end_click:;
+
+    // ── Pending actions motion ──
+    if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 3.0f)) {
+        if (mode == Mode::PendingPinAction) {
+            mode = Mode::DraggingPin;
+        } else if (mode == Mode::PendingWireBranch) {
+            // Cancel branch if dragging, select the wire instead
+            bool shiftHeld = ImGui::GetIO().KeyShift;
+            if (!shiftHeld) {
+                for (auto& c : comps) c.selected = false;
+                for (auto& jc : junctions) jc.selected = false;
+                for (auto& w : wires) {
+                    if (w.id != pendingWireBranchId) w.selected = false;
+                    w.waypointSelected.assign(w.waypointSelected.size(), false);
+                }
+                selectedId = -1;
+            }
+            for (auto& w : wires) {
+                if (w.id == pendingWireBranchId) {
+                    w.selected = shiftHeld ? !w.selected : true;
+                    break;
+                }
+            }
+            mode = Mode::Idle;
+        }
+    }
+
+    // ── Pending actions release (Click-to-route) ──
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        if (mode == Mode::PendingPinAction) {
+            // Clicked and released without moving -> route wire
+            wireSrc.kind = EndpointKind::Component;
+            wireSrc.compId = draggingPinCompId;
+            wireSrc.pinIdx = draggingPinIdx;
+            wireSrc.isDriver = draggingPinIsDriver;
+            currentWireWaypoints.clear();
+            mode = Mode::DrawingWire;
+        } else if (mode == Mode::PendingWireBranch) {
+            // Clicked and released wire without moving -> branch
+            insertJunctionOnWire(pendingWireBranchId, pendingWireBranchPos);
+            if (!junctions.empty()) {
+                wireSrc.kind = EndpointKind::Junction;
+                wireSrc.junctionId = junctions.back().id;
+                currentWireWaypoints.clear();
+                mode = Mode::DrawingWire;
+            } else {
+                mode = Mode::Idle;
+            }
+        }
+    }
 
     // ── Double-click to add waypoint on wire ──
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -2361,6 +2427,8 @@ void Canvas::render()
                         if (d < bestDist) { bestDist = d; bestSeg = (int)i - 1; }
                     }
                     wv.waypoints.insert(wv.waypoints.begin() + bestSeg, newWp);
+                    if (wv.waypointSelected.size() != wv.waypoints.size() - 1) wv.waypointSelected.resize(wv.waypoints.size() - 1, false);
+                    wv.waypointSelected.insert(wv.waypointSelected.begin() + bestSeg, false);
                     break;
                 }
             }

@@ -97,13 +97,16 @@ private:
         // User-editable bend points (world coords).
         // Empty = use auto Manhattan routing.
         std::vector<ImVec2> waypoints;
+        std::vector<bool> waypointSelected;
     };
 
     enum class Mode {
         Idle, Placing, DraggingComp, DrawingWire, PressingButton,
         SelectingRegion,
         DraggingPin,       // Dragging a pin around its component edge
-        DraggingWaypoint   // Dragging a wire bend point
+        DraggingWaypoint,  // Dragging a wire bend point
+        PendingPinAction,  // Mouse down on a pin, deciding between drag and route
+        PendingWireBranch  // Mouse down on a wire, deciding between select and branch
     };
 
     Simulator*                 sim;
@@ -136,8 +139,9 @@ private:
     int    pressedButtonId = -1;
 
     Endpoint wireSrc;
+    std::vector<ImVec2> currentWireWaypoints;
 
-    // Pin dragging state
+    // Pin dragging / routing state
     int    draggingPinCompId    = -1;
     int    draggingPinIdx       = -1;
     bool   draggingPinIsDriver  = false;
@@ -145,6 +149,10 @@ private:
     // Waypoint dragging state
     int    draggingWireId       = -1;
     int    draggingWaypointIdx  = -1;
+
+    // Wire branching state
+    int    pendingWireBranchId  = -1;
+    ImVec2 pendingWireBranchPos = {0.f, 0.f};
 
     int nextId         = 1;
     int nextWireId     = 1;
