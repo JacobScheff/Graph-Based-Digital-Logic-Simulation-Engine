@@ -29,6 +29,24 @@ std::string Canvas::serialize() const
             if (auto* c = dynamic_cast<Clock*>(cv.comp.get()))
                 jc["clockPeriod"] = c->getHalfPeriod();
         }
+
+        // Serialize PinLayout
+        jc["receiverLayout"] = json::array();
+        for (const auto& pl : cv.receiverLayout) {
+            json jpl;
+            jpl["side"] = pl.side;
+            jpl["t"] = pl.t;
+            jc["receiverLayout"].push_back(jpl);
+        }
+        
+        jc["driverLayout"] = json::array();
+        for (const auto& pl : cv.driverLayout) {
+            json jpl;
+            jpl["side"] = pl.side;
+            jpl["t"] = pl.t;
+            jc["driverLayout"].push_back(jpl);
+        }
+
         j["components"].push_back(jc);
     }
 
@@ -61,6 +79,16 @@ std::string Canvas::serialize() const
         
         jw["src"] = serializeEndpoint(wv.src);
         jw["dst"] = serializeEndpoint(wv.dst);
+
+        // Serialize waypoints
+        jw["waypoints"] = json::array();
+        for (const auto& wp : wv.waypoints) {
+            json jwp;
+            jwp["x"] = wp.x;
+            jwp["y"] = wp.y;
+            jw["waypoints"].push_back(jwp);
+        }
+
         j["wires"].push_back(jw);
     }
 
@@ -78,10 +106,6 @@ void Canvas::deserialize(const std::string& data)
     wires.clear();
     if (sim) {
         sim->stop();
-        // The simulator handles its own nets, but we need a clean slate.
-        // Easiest is to create a new Simulator, but since we just use sim->createNet() in completeWire,
-        // we should probably clear simulator nets if possible. 
-        // For now, Simulator will accumulate orphan nets. To fix, one should add Simulator::clear().
     }
     
     try {
@@ -115,7 +139,34 @@ void Canvas::deserialize(const std::string& data)
                         c->setHalfPeriod(jc.value("clockPeriod", 10));
                 }
                 
+                // Load PinLayout or initialize defaults
+                if (jc.contains("receiverLayout")) {
+                    for (const auto& jpl : jc["receiverLayout"]) {
+                        PinLayout pl;
+                        pl.side = jpl.value("side", 0);
+                        pl.t = jpl.value("t", 0.5f);
+                        cv.receiverLayout.push_back(pl);
+                    }
+                }
+                if (jc.contains("driverLayout")) {
+                    for (const auto& jpl : jc["driverLayout"]) {
+                        PinLayout pl;
+                        pl.side = jpl.value("side", 2);
+                        pl.t = jpl.value("t", 0.5f);
+                        cv.driverLayout.push_back(pl);
+                    }
+                }
+                
+                // If layouts were missing (old save), initialize defaults
+                if (cv.receiverLayout.empty() || cv.driverLayout.empty()) {
+                    initPinLayouts(cv);
+                }
+                
                 if (sim) sim->registerComponent(cv.comp.get());
+                if (cv.typeName == "CLK" && sim) {
+                    if (auto* clk = dynamic_cast<Clock*>(cv.comp.get()))
+                        sim->registerClock(clk);
+                }
                 
                 comps.push_back(std::move(cv));
                 if (cv.id > maxCompId) maxCompId = cv.id;
@@ -156,10 +207,18 @@ void Canvas::deserialize(const std::string& data)
                 Endpoint dst = deserializeEndpoint(jw["dst"]);
                 int busWidth = jw.value("busWidth", 1);
                 
-                // Using completeWire will automatically create the Net and wire object!
-                // Because completeWire pushes to `wires` array, the wire IDs will be assigned from `nextWireId`.
-                // We will ignore the saved wire ID to guarantee consistency.
+                // Add waypoints if they exist, before completeWire is called.
+                // completeWire creates the wire object and puts it at the back of `wires`.
                 completeWire(src, dst, busWidth);
+                
+                if (!wires.empty()) {
+                    WireView& wv = wires.back();
+                    if (jw.contains("waypoints")) {
+                        for (const auto& jwp : jw["waypoints"]) {
+                            wv.waypoints.push_back({jwp.value("x", 0.f), jwp.value("y", 0.f)});
+                        }
+                    }
+                }
             }
         }
     } catch (const std::exception& e) {

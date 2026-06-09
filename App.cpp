@@ -15,6 +15,9 @@ using json = nlohmann::json;
 
 #include <cstdio>
 #include <cmath>
+#include <cstring>
+#include <algorithm>
+#include <cctype>
 
 void App::glfwErrorCallback(int err, const char* desc)
 {
@@ -428,35 +431,157 @@ void App::renderMenuBar()
 
 // ─── Component Palette ────────────────────────────────────────────────────────
 
+// Helper: draw a small inline icon for gate type on the draw list
+static void drawPaletteIcon(ImDrawList* dl, ImVec2 pos, const char* type, ImU32 col)
+{
+    const float S = 12.f; // icon size
+    const float cx = pos.x + S * 0.5f;
+    const float cy = pos.y + S * 0.5f;
+
+    if (strcmp(type, "NOT") == 0 || strcmp(type, "BUF") == 0) {
+        // Triangle (inverter symbol)
+        dl->AddTriangleFilled(
+            ImVec2(pos.x, pos.y), ImVec2(pos.x + S, cy), ImVec2(pos.x, pos.y + S), col);
+    } else if (strcmp(type, "AND") == 0 || strcmp(type, "NAND") == 0) {
+        // D-shape: left flat line + right arc
+        dl->AddRectFilled(ImVec2(pos.x, pos.y), ImVec2(cx, pos.y + S), col, 0.f);
+        dl->PathArcTo(ImVec2(cx, cy), S * 0.5f, -1.57f, 1.57f, 12);
+        dl->PathFillConvex(col);
+    } else if (strcmp(type, "OR") == 0 || strcmp(type, "NOR") == 0) {
+        // Shield/curved shape
+        dl->AddBezierQuadratic(ImVec2(pos.x, pos.y), ImVec2(cx, pos.y - 2.f), ImVec2(pos.x + S, cy), col, 1.5f, 12);
+        dl->AddBezierQuadratic(ImVec2(pos.x + S, cy), ImVec2(cx, pos.y + S + 2.f), ImVec2(pos.x, pos.y + S), col, 1.5f, 12);
+        dl->AddBezierQuadratic(ImVec2(pos.x, pos.y + S), ImVec2(pos.x + 3.f, cy), ImVec2(pos.x, pos.y), col, 1.5f, 12);
+    } else if (strcmp(type, "XOR") == 0 || strcmp(type, "XNOR") == 0) {
+        // Curved shape with extra line
+        dl->AddBezierQuadratic(ImVec2(pos.x + 2.f, pos.y), ImVec2(cx + 2.f, pos.y - 2.f), ImVec2(pos.x + S, cy), col, 1.5f, 12);
+        dl->AddBezierQuadratic(ImVec2(pos.x + S, cy), ImVec2(cx + 2.f, pos.y + S + 2.f), ImVec2(pos.x + 2.f, pos.y + S), col, 1.5f, 12);
+        dl->AddBezierQuadratic(ImVec2(pos.x + 2.f, pos.y + S), ImVec2(pos.x + 5.f, cy), ImVec2(pos.x + 2.f, pos.y), col, 1.5f, 12);
+        // Extra input arc line
+        dl->AddBezierQuadratic(ImVec2(pos.x, pos.y + S), ImVec2(pos.x + 3.f, cy), ImVec2(pos.x, pos.y), col, 1.5f, 12);
+    } else if (strcmp(type, "SW") == 0) {
+        // Toggle circle
+        dl->AddCircle(ImVec2(cx, cy), S * 0.45f, col, 12, 1.5f);
+        dl->AddCircleFilled(ImVec2(cx + 2.f, cy), 2.5f, col);
+    } else if (strcmp(type, "BTN") == 0) {
+        // Square with dot
+        dl->AddRect(ImVec2(pos.x + 1.f, pos.y + 1.f), ImVec2(pos.x + S - 1.f, pos.y + S - 1.f), col, 1.f, 0, 1.5f);
+        dl->AddCircleFilled(ImVec2(cx, cy), 2.f, col);
+    } else if (strcmp(type, "CLK") == 0) {
+        // Small sine/square wave
+        float y0 = cy + 3.f, y1 = cy - 3.f;
+        dl->AddLine(ImVec2(pos.x, y0), ImVec2(pos.x + 2.f, y0), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 2.f, y0), ImVec2(pos.x + 2.f, y1), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 2.f, y1), ImVec2(pos.x + 5.f, y1), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 5.f, y1), ImVec2(pos.x + 5.f, y0), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 5.f, y0), ImVec2(pos.x + 8.f, y0), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 8.f, y0), ImVec2(pos.x + 8.f, y1), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 8.f, y1), ImVec2(pos.x + S, y1), col, 1.5f);
+    } else if (strcmp(type, "LED") == 0) {
+        // Filled circle (LED)
+        dl->AddCircleFilled(ImVec2(cx, cy), S * 0.45f, col);
+    } else if (strcmp(type, "REG") == 0) {
+        // Box with 'R'
+        dl->AddRect(ImVec2(pos.x, pos.y), ImVec2(pos.x + S, pos.y + S), col, 1.f, 0, 1.5f);
+        // Tiny R letter approximation
+        dl->AddLine(ImVec2(pos.x + 3.f, pos.y + 3.f), ImVec2(pos.x + 3.f, pos.y + S - 3.f), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 3.f, pos.y + 3.f), ImVec2(pos.x + 7.f, pos.y + 3.f), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 7.f, pos.y + 3.f), ImVec2(pos.x + 7.f, cy), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 7.f, cy), ImVec2(pos.x + 3.f, cy), col, 1.5f);
+        dl->AddLine(ImVec2(pos.x + 5.f, cy), ImVec2(pos.x + 8.f, pos.y + S - 3.f), col, 1.5f);
+    } else {
+        // Default: small filled square
+        dl->AddRectFilled(ImVec2(pos.x + 2.f, pos.y + 2.f), ImVec2(pos.x + S - 2.f, pos.y + S - 2.f), col, 1.f);
+    }
+}
+
+// Helper: draw a teal accent bar on the left of a collapsing header
+static void drawHeaderAccentBar(ImDrawList* dl)
+{
+    ImVec2 min = ImGui::GetItemRectMin();
+    ImVec2 max = ImGui::GetItemRectMax();
+    dl->AddRectFilled(ImVec2(min.x, min.y + 2.f), ImVec2(min.x + 3.f, max.y - 2.f),
+        IM_COL32(51, 166, 184, 200), 1.f);
+}
+
+// Helper: case-insensitive substring match
+static bool matchesFilter(const char* label, const char* filter)
+{
+    if (!filter || filter[0] == '\0') return true;
+    // simple case-insensitive search
+    std::string haystack(label);
+    std::string needle(filter);
+    std::transform(haystack.begin(), haystack.end(), haystack.begin(),
+        [](unsigned char c){ return (char)std::tolower(c); });
+    std::transform(needle.begin(), needle.end(), needle.begin(),
+        [](unsigned char c){ return (char)std::tolower(c); });
+    return haystack.find(needle) != std::string::npos;
+}
+
 void App::renderPalette()
 {
     ImGui::Begin("Components");
 
+    // Filter / search
+    static char filterBuf[64] = "";
+    ImGui::SetNextItemWidth(-1.f);
+    ImGui::InputTextWithHint("##filter", "Search...", filterBuf, sizeof(filterBuf));
+    ImGui::Spacing();
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 iconCol = IM_COL32(51, 166, 184, 220); // teal icon color
+
+    // Lambda: palette button with inline icon
     auto paletteBtn = [&](const char* label, const char* type, const char* tip) {
+        if (!matchesFilter(label, filterBuf)) return;
         ImGui::PushStyleColor(ImGuiCol_Button,        IM_COL32(28, 28, 38, 255));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(50, 48, 120, 255));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(70, 60, 195, 255));
-        if (ImGui::Button(label, {-1.f, 30.f}))
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(30, 70, 78, 255));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(35, 110, 120, 255));
+
+        // Reserve space for icon by padding the label
+        char iconLabel[128];
+        std::snprintf(iconLabel, sizeof(iconLabel), "     %s", label);
+
+        if (ImGui::Button(iconLabel, {-1.f, 30.f}))
             canvas.beginPlacement(type);
+
+        // Draw icon on top of the button
+        ImVec2 bmin = ImGui::GetItemRectMin();
+        ImVec2 bmax = ImGui::GetItemRectMax();
+        float iconY = bmin.y + (bmax.y - bmin.y - 12.f) * 0.5f;
+        drawPaletteIcon(dl, ImVec2(bmin.x + 8.f, iconY), type, iconCol);
+
         ImGui::PopStyleColor(3);
         if (ImGui::IsItemHovered() && tip)
             ImGui::SetTooltip("%s", tip);
     };
 
     auto busPaletteBtn = [&](const char* label, const char* type, const char* tip) {
+        if (!matchesFilter(label, filterBuf)) return;
         ImGui::PushStyleColor(ImGuiCol_Button,        IM_COL32(28, 28, 38, 255));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(50, 48, 120, 255));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(70, 60, 195, 255));
-        if (ImGui::Button(label, {-1.f, 30.f})) {
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(30, 70, 78, 255));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(35, 110, 120, 255));
+
+        char iconLabel[128];
+        std::snprintf(iconLabel, sizeof(iconLabel), "     %s", label);
+
+        if (ImGui::Button(iconLabel, {-1.f, 30.f})) {
             pendingBusType = type;
             showBusWidthPopup = true;
         }
+
+        ImVec2 bmin = ImGui::GetItemRectMin();
+        ImVec2 bmax = ImGui::GetItemRectMax();
+        float iconY = bmin.y + (bmax.y - bmin.y - 12.f) * 0.5f;
+        drawPaletteIcon(dl, ImVec2(bmin.x + 8.f, iconY), type, iconCol);
+
         ImGui::PopStyleColor(3);
         if (ImGui::IsItemHovered() && tip)
             ImGui::SetTooltip("%s", tip);
     };
 
     if (ImGui::CollapsingHeader("Logic Gates", ImGuiTreeNodeFlags_DefaultOpen)) {
+        drawHeaderAccentBar(dl);
         ImGui::Indent(4.f);
         ImGui::Spacing();
         paletteBtn("NOT",  "NOT",  "Inverter \xe2\x80\x93 1 in, 1 out");
@@ -473,6 +598,7 @@ void App::renderPalette()
     }
 
     if (ImGui::CollapsingHeader("Custom Components", ImGuiTreeNodeFlags_DefaultOpen)) {
+        drawHeaderAccentBar(dl);
         ImGui::Indent(4.f);
         ImGui::Spacing();
         busPaletteBtn("Port In",  "PORT_IN",  "Boundary input for packaging custom components");
@@ -482,6 +608,7 @@ void App::renderPalette()
     }
 
     if (ImGui::CollapsingHeader("Inputs / Sources", ImGuiTreeNodeFlags_DefaultOpen)) {
+        drawHeaderAccentBar(dl);
         ImGui::Indent(4.f);
         ImGui::Spacing();
         paletteBtn("Switch", "SW",     "Toggle switch (click on canvas)");
@@ -493,6 +620,7 @@ void App::renderPalette()
     }
 
     if (ImGui::CollapsingHeader("Wiring / Bus", ImGuiTreeNodeFlags_DefaultOpen)) {
+        drawHeaderAccentBar(dl);
         ImGui::Indent(4.f);
         ImGui::Spacing();
         busPaletteBtn("Bus Merge", "BUS_MERGE", "N x 1-bit \xe2\x86\x92 N-bit bus");
@@ -503,6 +631,7 @@ void App::renderPalette()
     }
 
     if (ImGui::CollapsingHeader("Outputs", ImGuiTreeNodeFlags_DefaultOpen)) {
+        drawHeaderAccentBar(dl);
         ImGui::Indent(4.f);
         ImGui::Spacing();
         paletteBtn("LED",      "LED",      "Single-bit LED indicator");
@@ -513,6 +642,7 @@ void App::renderPalette()
 
     if (!canvas.customDefs.empty()) {
         if (ImGui::CollapsingHeader("Loaded Custom", ImGuiTreeNodeFlags_DefaultOpen)) {
+            drawHeaderAccentBar(dl);
             ImGui::Indent(4.f);
             ImGui::Spacing();
             for (const auto& [name, def] : canvas.customDefs) {
@@ -528,6 +658,7 @@ void App::renderPalette()
     ImGui::Spacing();
 
     if (ImGui::CollapsingHeader("Shortcuts")) {
+        drawHeaderAccentBar(dl);
         ImGui::Indent(4.f);
         ImGui::Spacing();
         ImGui::TextDisabled("Shift+Click  Keep placing");
@@ -614,10 +745,23 @@ void App::renderProperties()
             ImGui::Spacing();
             ImGui::SeparatorText("Power Rails");
             ImGui::Spacing();
-            ImGui::TextColored({0.30f,0.69f,0.31f,1.f}, "  (O) VDD: %s",
-                stateLabel(sim.getVddNet()->getState(), sim));
-            ImGui::TextColored({0.25f,0.55f,0.90f,1.f}, "  (O) GND: %s",
-                stateLabel(sim.getGndNet()->getState(), sim));
+            {
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                // VDD
+                ImVec2 cur = ImGui::GetCursorScreenPos();
+                dl->AddCircleFilled(ImVec2(cur.x + 12.f, cur.y + 7.f), 5.f, IM_COL32(76, 176, 80, 255));
+                ImGui::Indent(22.f);
+                ImGui::TextColored({0.30f,0.69f,0.31f,1.f}, "VDD: %s",
+                    stateLabel(sim.getVddNet()->getState(), sim));
+                ImGui::Unindent(22.f);
+                // GND
+                cur = ImGui::GetCursorScreenPos();
+                dl->AddCircleFilled(ImVec2(cur.x + 12.f, cur.y + 7.f), 5.f, IM_COL32(64, 140, 230, 255));
+                ImGui::Indent(22.f);
+                ImGui::TextColored({0.25f,0.55f,0.90f,1.f}, "GND: %s",
+                    stateLabel(sim.getGndNet()->getState(), sim));
+                ImGui::Unindent(22.f);
+            }
         }
         ImGui::End();
         return;
@@ -712,8 +856,16 @@ void App::renderProperties()
         auto* led = static_cast<LED*>(comp);
         ImVec4 ledCol = led->isLit() ? ImVec4{0.30f,0.69f,0.31f,1.f}
                                      : ImVec4{0.25f,0.55f,0.90f,1.f};
-        ImGui::TextColored(ledCol, "(O) State: %s",
-            stateLabel(led->getLitState(), sim));
+        {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            ImVec2 cur = ImGui::GetCursorScreenPos();
+            ImU32 lc = led->isLit() ? IM_COL32(76, 176, 80, 255) : IM_COL32(64, 140, 230, 255);
+            dl->AddCircleFilled(ImVec2(cur.x + 8.f, cur.y + 7.f), 5.f, lc);
+            ImGui::Indent(18.f);
+            ImGui::TextColored(ledCol, "State: %s",
+                stateLabel(led->getLitState(), sim));
+            ImGui::Unindent(18.f);
+        }
     }
 
     if (type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG") {
@@ -734,10 +886,10 @@ void App::renderProperties()
     };
 
     if (ImGui::BeginTable("##pins", 3,
-        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp))
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX))
     {
-        ImGui::TableSetupColumn("Pin",   ImGuiTableColumnFlags_WidthFixed, 50.f);
-        ImGui::TableSetupColumn("Dir",   ImGuiTableColumnFlags_WidthFixed, 30.f);
+        ImGui::TableSetupColumn("Pin",   ImGuiTableColumnFlags_WidthFixed, 56.f);
+        ImGui::TableSetupColumn("Dir",   ImGuiTableColumnFlags_WidthFixed, 38.f);
         ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
 
@@ -754,7 +906,15 @@ void App::renderProperties()
             ImGui::TableNextColumn();
             ImGui::TextDisabled("IN");
             ImGui::TableNextColumn();
-            ImGui::TextColored(sColors[ci], "%s", lbl);
+            {
+                ImDrawList* pdl = ImGui::GetWindowDrawList();
+                ImVec2 cur = ImGui::GetCursorScreenPos();
+                ImU32 pc = ImGui::ColorConvertFloat4ToU32(sColors[ci]);
+                pdl->AddCircleFilled(ImVec2(cur.x + 5.f, cur.y + 7.f), 4.f, pc);
+                ImGui::Indent(14.f);
+                ImGui::TextColored(sColors[ci], "%s", lbl);
+                ImGui::Unindent(14.f);
+            }
         }
         for (int i = 0; i < comp->numDrivers(); ++i) {
             State s = comp->getDriver(i)->getState();
@@ -769,7 +929,15 @@ void App::renderProperties()
             ImGui::TableNextColumn();
             ImGui::TextDisabled("OUT");
             ImGui::TableNextColumn();
-            ImGui::TextColored(sColors[ci], "%s", lbl);
+            {
+                ImDrawList* pdl = ImGui::GetWindowDrawList();
+                ImVec2 cur = ImGui::GetCursorScreenPos();
+                ImU32 pc = ImGui::ColorConvertFloat4ToU32(sColors[ci]);
+                pdl->AddCircleFilled(ImVec2(cur.x + 5.f, cur.y + 7.f), 4.f, pc);
+                ImGui::Indent(14.f);
+                ImGui::TextColored(sColors[ci], "%s", lbl);
+                ImGui::Unindent(14.f);
+            }
         }
 
         ImGui::EndTable();
@@ -837,19 +1005,25 @@ void App::renderSimControls()
     ImGui::SameLine(0, 16);
     ImGui::TextDisabled("Tick: %llu", (unsigned long long)sim.getWheel().getCurrentTick());
 
-    // Color legend (compact)
-    ImGui::SameLine(0, 16);
-    ImGui::TextColored({0.30f,0.69f,0.31f,1.f}, "(O)");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("VDD (High)");
-    ImGui::SameLine(0, 4);
-    ImGui::TextColored({0.25f,0.55f,0.90f,1.f}, "(O)");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("GND (Low)");
-    ImGui::SameLine(0, 4);
-    ImGui::TextColored({0.45f,0.45f,0.45f,1.f}, "(O)");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Floating");
-    ImGui::SameLine(0, 4);
-    ImGui::TextColored({0.95f,0.30f,0.25f,1.f}, "(O)");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Undefined");
+    // Color legend (compact, filled circles)
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        struct LegendEntry { ImU32 col; const char* tip; };
+        LegendEntry legends[] = {
+            { IM_COL32(76, 176, 80, 255),   "VDD (High)" },
+            { IM_COL32(64, 140, 230, 255),  "GND (Low)" },
+            { IM_COL32(115, 115, 115, 255), "Floating" },
+            { IM_COL32(242, 77, 64, 255),   "Undefined" },
+        };
+        for (int li = 0; li < 4; ++li) {
+            ImGui::SameLine(0, li == 0 ? 16.f : 8.f);
+            ImVec2 cur = ImGui::GetCursorScreenPos();
+            float cy = cur.y + ImGui::GetTextLineHeight() * 0.5f;
+            dl->AddCircleFilled(ImVec2(cur.x + 6.f, cy), 6.f, legends[li].col);
+            ImGui::Dummy({14.f, ImGui::GetTextLineHeight()});
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", legends[li].tip);
+        }
+    }
 
     ImGui::End();
 }
@@ -887,10 +1061,14 @@ void App::applyDarkTheme()
 
     auto& c = s.Colors;
 
-    // Backgrounds
-    c[ImGuiCol_WindowBg]          = ImVec4(0.09f, 0.09f, 0.11f, 1.f);
+    // Teal accent base:  ImVec4(0.20f, 0.65f, 0.72f, 1.f)
+    // Lighter teal:      ImVec4(0.28f, 0.78f, 0.85f, 1.f)
+    // Darker teal:       ImVec4(0.14f, 0.50f, 0.56f, 1.f)
+
+    // Backgrounds (warmed up slightly)
+    c[ImGuiCol_WindowBg]          = ImVec4(0.08f, 0.08f, 0.10f, 1.f);
     c[ImGuiCol_ChildBg]           = ImVec4(0.07f, 0.07f, 0.09f, 1.f);
-    c[ImGuiCol_PopupBg]           = ImVec4(0.10f, 0.10f, 0.13f, 0.98f);
+    c[ImGuiCol_PopupBg]           = ImVec4(0.09f, 0.09f, 0.12f, 0.98f);
 
     // Borders
     c[ImGuiCol_Border]            = ImVec4(0.16f, 0.16f, 0.22f, 0.5f);
@@ -898,8 +1076,8 @@ void App::applyDarkTheme()
 
     // Frames
     c[ImGuiCol_FrameBg]           = ImVec4(0.11f, 0.11f, 0.15f, 1.f);
-    c[ImGuiCol_FrameBgHovered]    = ImVec4(0.16f, 0.16f, 0.22f, 1.f);
-    c[ImGuiCol_FrameBgActive]     = ImVec4(0.20f, 0.20f, 0.28f, 1.f);
+    c[ImGuiCol_FrameBgHovered]    = ImVec4(0.14f, 0.18f, 0.22f, 1.f);
+    c[ImGuiCol_FrameBgActive]     = ImVec4(0.16f, 0.24f, 0.28f, 1.f);
 
     // Title bars
     c[ImGuiCol_TitleBg]           = ImVec4(0.065f, 0.065f, 0.085f, 1.f);
@@ -909,59 +1087,59 @@ void App::applyDarkTheme()
     // Menu bar
     c[ImGuiCol_MenuBarBg]         = ImVec4(0.08f, 0.08f, 0.10f, 1.f);
 
-    // Headers (CollapsingHeader, etc.)
-    c[ImGuiCol_Header]            = ImVec4(0.13f, 0.13f, 0.20f, 1.f);
-    c[ImGuiCol_HeaderHovered]     = ImVec4(0.22f, 0.21f, 0.40f, 1.f);
-    c[ImGuiCol_HeaderActive]      = ImVec4(0.28f, 0.26f, 0.55f, 1.f);
+    // Headers (CollapsingHeader, etc.) — teal accent
+    c[ImGuiCol_Header]            = ImVec4(0.10f, 0.16f, 0.18f, 1.f);
+    c[ImGuiCol_HeaderHovered]     = ImVec4(0.14f, 0.38f, 0.42f, 1.f);
+    c[ImGuiCol_HeaderActive]      = ImVec4(0.18f, 0.52f, 0.58f, 1.f);
 
-    // Buttons
-    c[ImGuiCol_Button]            = ImVec4(0.14f, 0.14f, 0.20f, 1.f);
-    c[ImGuiCol_ButtonHovered]     = ImVec4(0.22f, 0.21f, 0.48f, 1.f);
-    c[ImGuiCol_ButtonActive]      = ImVec4(0.29f, 0.27f, 0.65f, 1.f);
+    // Buttons — teal accent
+    c[ImGuiCol_Button]            = ImVec4(0.12f, 0.16f, 0.18f, 1.f);
+    c[ImGuiCol_ButtonHovered]     = ImVec4(0.16f, 0.42f, 0.48f, 1.f);
+    c[ImGuiCol_ButtonActive]      = ImVec4(0.20f, 0.58f, 0.65f, 1.f);
 
-    // Tabs
+    // Tabs — teal accent
     c[ImGuiCol_Tab]               = ImVec4(0.08f, 0.08f, 0.11f, 1.f);
-    c[ImGuiCol_TabHovered]        = ImVec4(0.22f, 0.21f, 0.48f, 1.f);
-    c[ImGuiCol_TabActive]         = ImVec4(0.15f, 0.15f, 0.25f, 1.f);
-    c[ImGuiCol_TabSelected]       = ImVec4(0.15f, 0.15f, 0.25f, 1.f);
-    c[ImGuiCol_TabSelectedOverline] = ImVec4(0.38f, 0.36f, 0.85f, 1.f);
+    c[ImGuiCol_TabHovered]        = ImVec4(0.14f, 0.40f, 0.45f, 1.f);
+    c[ImGuiCol_TabActive]         = ImVec4(0.10f, 0.22f, 0.25f, 1.f);
+    c[ImGuiCol_TabSelected]       = ImVec4(0.10f, 0.22f, 0.25f, 1.f);
+    c[ImGuiCol_TabSelectedOverline] = ImVec4(0.20f, 0.65f, 0.72f, 1.f);
     c[ImGuiCol_TabDimmed]         = ImVec4(0.06f, 0.06f, 0.09f, 1.f);
-    c[ImGuiCol_TabDimmedSelected] = ImVec4(0.10f, 0.10f, 0.16f, 1.f);
+    c[ImGuiCol_TabDimmedSelected] = ImVec4(0.08f, 0.14f, 0.16f, 1.f);
 
-    // Sliders & grabs
-    c[ImGuiCol_SliderGrab]        = ImVec4(0.38f, 0.36f, 0.82f, 1.f);
-    c[ImGuiCol_SliderGrabActive]  = ImVec4(0.50f, 0.47f, 0.95f, 1.f);
-    c[ImGuiCol_CheckMark]         = ImVec4(0.42f, 0.40f, 0.88f, 1.f);
+    // Sliders & grabs — teal accent
+    c[ImGuiCol_SliderGrab]        = ImVec4(0.20f, 0.65f, 0.72f, 1.f);
+    c[ImGuiCol_SliderGrabActive]  = ImVec4(0.28f, 0.78f, 0.85f, 1.f);
+    c[ImGuiCol_CheckMark]         = ImVec4(0.22f, 0.70f, 0.76f, 1.f);
 
-    // Scrollbar
+    // Scrollbar — teal tinted
     c[ImGuiCol_ScrollbarBg]       = ImVec4(0.06f, 0.06f, 0.08f, 0.6f);
-    c[ImGuiCol_ScrollbarGrab]     = ImVec4(0.20f, 0.20f, 0.28f, 1.f);
-    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.28f, 0.28f, 0.38f, 1.f);
-    c[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.35f, 0.35f, 0.48f, 1.f);
+    c[ImGuiCol_ScrollbarGrab]     = ImVec4(0.14f, 0.28f, 0.32f, 1.f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.18f, 0.42f, 0.48f, 1.f);
+    c[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.22f, 0.55f, 0.60f, 1.f);
 
-    // Separators
-    c[ImGuiCol_Separator]         = ImVec4(0.16f, 0.16f, 0.22f, 0.6f);
-    c[ImGuiCol_SeparatorHovered]  = ImVec4(0.38f, 0.36f, 0.82f, 0.8f);
-    c[ImGuiCol_SeparatorActive]   = ImVec4(0.48f, 0.45f, 0.95f, 1.f);
+    // Separators — teal accent
+    c[ImGuiCol_Separator]         = ImVec4(0.14f, 0.20f, 0.22f, 0.6f);
+    c[ImGuiCol_SeparatorHovered]  = ImVec4(0.20f, 0.65f, 0.72f, 0.8f);
+    c[ImGuiCol_SeparatorActive]   = ImVec4(0.28f, 0.78f, 0.85f, 1.f);
 
-    // Resize grips
-    c[ImGuiCol_ResizeGrip]        = ImVec4(0.20f, 0.20f, 0.30f, 0.3f);
-    c[ImGuiCol_ResizeGripHovered] = ImVec4(0.38f, 0.36f, 0.82f, 0.5f);
-    c[ImGuiCol_ResizeGripActive]  = ImVec4(0.48f, 0.45f, 0.95f, 0.8f);
+    // Resize grips — teal accent
+    c[ImGuiCol_ResizeGrip]        = ImVec4(0.14f, 0.28f, 0.32f, 0.3f);
+    c[ImGuiCol_ResizeGripHovered] = ImVec4(0.20f, 0.65f, 0.72f, 0.5f);
+    c[ImGuiCol_ResizeGripActive]  = ImVec4(0.28f, 0.78f, 0.85f, 0.8f);
 
-    // Docking
-    c[ImGuiCol_DockingPreview]    = ImVec4(0.38f, 0.36f, 0.82f, 0.5f);
+    // Docking — teal accent
+    c[ImGuiCol_DockingPreview]    = ImVec4(0.20f, 0.65f, 0.72f, 0.5f);
     c[ImGuiCol_DockingEmptyBg]    = ImVec4(0.06f, 0.06f, 0.08f, 1.f);
 
     // Table
-    c[ImGuiCol_TableHeaderBg]     = ImVec4(0.11f, 0.11f, 0.16f, 1.f);
-    c[ImGuiCol_TableBorderStrong] = ImVec4(0.16f, 0.16f, 0.22f, 0.6f);
-    c[ImGuiCol_TableBorderLight]  = ImVec4(0.12f, 0.12f, 0.17f, 0.5f);
+    c[ImGuiCol_TableHeaderBg]     = ImVec4(0.09f, 0.13f, 0.15f, 1.f);
+    c[ImGuiCol_TableBorderStrong] = ImVec4(0.14f, 0.20f, 0.22f, 0.6f);
+    c[ImGuiCol_TableBorderLight]  = ImVec4(0.10f, 0.15f, 0.17f, 0.5f);
     c[ImGuiCol_TableRowBg]        = ImVec4(0.f, 0.f, 0.f, 0.f);
-    c[ImGuiCol_TableRowBgAlt]     = ImVec4(0.10f, 0.10f, 0.14f, 0.4f);
+    c[ImGuiCol_TableRowBgAlt]     = ImVec4(0.08f, 0.11f, 0.13f, 0.4f);
 
-    // Text
-    c[ImGuiCol_Text]              = ImVec4(0.88f, 0.88f, 0.92f, 1.f);
+    // Text — increased contrast
+    c[ImGuiCol_Text]              = ImVec4(0.90f, 0.91f, 0.94f, 1.f);
     c[ImGuiCol_TextDisabled]      = ImVec4(0.44f, 0.44f, 0.50f, 1.f);
-    c[ImGuiCol_TextSelectedBg]    = ImVec4(0.28f, 0.26f, 0.60f, 0.5f);
+    c[ImGuiCol_TextSelectedBg]    = ImVec4(0.14f, 0.42f, 0.48f, 0.5f);
 }
