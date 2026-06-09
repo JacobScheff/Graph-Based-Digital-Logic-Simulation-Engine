@@ -261,6 +261,30 @@ Canvas.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Canvas.cpp.s
 .PHONY : Canvas.cpp.s
 
+CanvasSerialization.o: CanvasSerialization.cpp.o
+.PHONY : CanvasSerialization.o
+
+# target to build an object file
+CanvasSerialization.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/CanvasSerialization.cpp.o
+.PHONY : CanvasSerialization.cpp.o
+
+CanvasSerialization.i: CanvasSerialization.cpp.i
+.PHONY : CanvasSerialization.i
+
+# target to preprocess a source file
+CanvasSerialization.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/CanvasSerialization.cpp.i
+.PHONY : CanvasSerialization.cpp.i
+
+CanvasSerialization.s: CanvasSerialization.cpp.s
+.PHONY : CanvasSerialization.s
+
+# target to generate assembly for a file
+CanvasSerialization.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/CanvasSerialization.cpp.s
+.PHONY : CanvasSerialization.cpp.s
+
 Components.o: Components.cpp.o
 .PHONY : Components.o
 
@@ -284,6 +308,30 @@ Components.s: Components.cpp.s
 Components.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Components.cpp.s
 .PHONY : Components.cpp.s
+
+CustomComponent.o: CustomComponent.cpp.o
+.PHONY : CustomComponent.o
+
+# target to build an object file
+CustomComponent.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/CustomComponent.cpp.o
+.PHONY : CustomComponent.cpp.o
+
+CustomComponent.i: CustomComponent.cpp.i
+.PHONY : CustomComponent.i
+
+# target to preprocess a source file
+CustomComponent.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/CustomComponent.cpp.i
+.PHONY : CustomComponent.cpp.i
+
+CustomComponent.s: CustomComponent.cpp.s
+.PHONY : CustomComponent.s
+
+# target to generate assembly for a file
+CustomComponent.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/CustomComponent.cpp.s
+.PHONY : CustomComponent.cpp.s
 
 IO.o: IO.cpp.o
 .PHONY : IO.o
@@ -619,9 +667,15 @@ help:
 	@echo "... Canvas.o"
 	@echo "... Canvas.i"
 	@echo "... Canvas.s"
+	@echo "... CanvasSerialization.o"
+	@echo "... CanvasSerialization.i"
+	@echo "... CanvasSerialization.s"
 	@echo "... Components.o"
 	@echo "... Components.i"
 	@echo "... Components.s"
+	@echo "... CustomComponent.o"
+	@echo "... CustomComponent.i"
+	@echo "... CustomComponent.s"
 	@echo "... IO.o"
 	@echo "... IO.i"
 	@echo "... IO.s"

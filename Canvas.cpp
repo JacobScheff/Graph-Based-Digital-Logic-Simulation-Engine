@@ -33,8 +33,11 @@ Canvas::Canvas(Simulator* sim) : sim(sim) {}
 
 Canvas::~Canvas()
 {
-    for (auto& cv : comps)
-        sim->unregisterComponent(cv.comp.get());
+    for (auto& cv : comps) {
+        if (cv.comp) {
+            sim->unregisterComponent(cv.comp.get());
+        }
+    }
 }
 
 ImVec2 Canvas::w2s(ImVec2 w, ImVec2 origin) const
@@ -65,13 +68,28 @@ ImVec2 Canvas::railTapWorldX(float worldX) const
     return { std::round(worldX / SNAP) * SNAP, 0.f };
 }
 
-ImVec2 Canvas::driverPos(const ComponentView& cv, int idx) const
+ImVec2 Canvas::getCustomPinPos(const ComponentView& cv, int side, int totalOnSide, int idxOnSide, bool isEdge) const
 {
-    int n = cv.comp->numDrivers();
-    if (n == 0) return cv.pos;
-    float step = cv.size.y / float(n + 1);
-    return { cv.pos.x + cv.size.x + PIN_LEN,
-             cv.pos.y + step * float(idx + 1) };
+    float step, offset;
+    switch (side) {
+        case 0: // Left
+            step = cv.size.y / float(totalOnSide + 1);
+            offset = isEdge ? 0 : -PIN_LEN;
+            return { cv.pos.x + offset, cv.pos.y + step * float(idxOnSide + 1) };
+        case 1: // Top
+            step = cv.size.x / float(totalOnSide + 1);
+            offset = isEdge ? 0 : -PIN_LEN;
+            return { cv.pos.x + step * float(idxOnSide + 1), cv.pos.y + offset };
+        case 2: // Right
+            step = cv.size.y / float(totalOnSide + 1);
+            offset = isEdge ? 0 : PIN_LEN;
+            return { cv.pos.x + cv.size.x + offset, cv.pos.y + step * float(idxOnSide + 1) };
+        case 3: // Bottom
+            step = cv.size.x / float(totalOnSide + 1);
+            offset = isEdge ? 0 : PIN_LEN;
+            return { cv.pos.x + step * float(idxOnSide + 1), cv.pos.y + cv.size.y + offset };
+    }
+    return cv.pos;
 }
 
 static bool hasVddGndInputs(const std::string& typeName)
@@ -83,45 +101,124 @@ static bool hasVddGndInputs(const std::string& typeName)
            typeName == "CLK";
 }
 
+ImVec2 Canvas::driverPos(const ComponentView& cv, int idx) const
+{
+    auto it = customDefs.find(cv.typeName);
+    if (it != customDefs.end()) {
+        const auto& d = it->second;
+        int currentIdx = 0;
+        for (const auto& p : d.outPorts) {
+            if (idx >= currentIdx && idx < currentIdx + p.busWidth) {
+                int totalOnSide = 0;
+                int startOnSide = 0;
+                for (const auto& op : d.outPorts) {
+                    if (op.side == p.side) {
+                        if (&op < &p) startOnSide += op.busWidth;
+                        totalOnSide += op.busWidth;
+                    }
+                }
+                return getCustomPinPos(cv, p.side, totalOnSide, startOnSide + (idx - currentIdx), false);
+            }
+            currentIdx += p.busWidth;
+        }
+    }
+    int n = cv.comp->numDrivers();
+    if (n == 0) return cv.pos;
+    float step = cv.size.y / float(n + 1);
+    return { cv.pos.x + cv.size.x + PIN_LEN,
+             cv.pos.y + step * float(idx + 1) };
+}
+
+ImVec2 Canvas::driverEdgePos(const ComponentView& cv, int idx) const
+{
+    auto it = customDefs.find(cv.typeName);
+    if (it != customDefs.end()) {
+        const auto& d = it->second;
+        int currentIdx = 0;
+        for (const auto& p : d.outPorts) {
+            if (idx >= currentIdx && idx < currentIdx + p.busWidth) {
+                int totalOnSide = 0;
+                int startOnSide = 0;
+                for (const auto& op : d.outPorts) {
+                    if (op.side == p.side) {
+                        if (&op < &p) startOnSide += op.busWidth;
+                        totalOnSide += op.busWidth;
+                    }
+                }
+                return getCustomPinPos(cv, p.side, totalOnSide, startOnSide + (idx - currentIdx), true);
+            }
+            currentIdx += p.busWidth;
+        }
+    }
+    int n = cv.comp->numDrivers();
+    if (n == 0) return cv.pos;
+    float step = cv.size.y / float(n + 1);
+    return { cv.pos.x + cv.size.x, cv.pos.y + step * float(idx + 1) };
+}
+
 ImVec2 Canvas::receiverPos(const ComponentView& cv, int idx) const
 {
+    auto it = customDefs.find(cv.typeName);
+    if (it != customDefs.end()) {
+        const auto& d = it->second;
+        int currentIdx = 0;
+        for (const auto& p : d.inPorts) {
+            if (idx >= currentIdx && idx < currentIdx + p.busWidth) {
+                int totalOnSide = 0;
+                int startOnSide = 0;
+                for (const auto& ip : d.inPorts) {
+                    if (ip.side == p.side) {
+                        if (&ip < &p) startOnSide += ip.busWidth;
+                        totalOnSide += ip.busWidth;
+                    }
+                }
+                return getCustomPinPos(cv, p.side, totalOnSide, startOnSide + (idx - currentIdx), false);
+            }
+            currentIdx += p.busWidth;
+        }
+    }
     int n = cv.comp->numReceivers();
     if (n == 0) return cv.pos;
 
     if (hasVddGndInputs(cv.typeName)) {
-        if (idx == n - 2) {
-            // VDD input: Top border middle
-            return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y - PIN_LEN };
-        }
-        if (idx == n - 1) {
-            // GND input: Bottom border middle
-            return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y + cv.size.y + PIN_LEN };
-        }
-        // Regular inputs on the left: total of n - 2 inputs
+        if (idx == n - 2) return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y - PIN_LEN };
+        if (idx == n - 1) return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y + cv.size.y + PIN_LEN };
         int numRegular = n - 2;
         if (numRegular == 0) return cv.pos;
         float step = cv.size.y / float(numRegular + 1);
-        return { cv.pos.x - PIN_LEN,
-                 cv.pos.y + step * float(idx + 1) };
+        return { cv.pos.x - PIN_LEN, cv.pos.y + step * float(idx + 1) };
     }
-
     float step = cv.size.y / float(n + 1);
-    return { cv.pos.x - PIN_LEN,
-             cv.pos.y + step * float(idx + 1) };
+    return { cv.pos.x - PIN_LEN, cv.pos.y + step * float(idx + 1) };
 }
 
 ImVec2 Canvas::receiverEdgePos(const ComponentView& cv, int idx) const
 {
+    auto it = customDefs.find(cv.typeName);
+    if (it != customDefs.end()) {
+        const auto& d = it->second;
+        int currentIdx = 0;
+        for (const auto& p : d.inPorts) {
+            if (idx >= currentIdx && idx < currentIdx + p.busWidth) {
+                int totalOnSide = 0;
+                int startOnSide = 0;
+                for (const auto& ip : d.inPorts) {
+                    if (ip.side == p.side) {
+                        if (&ip < &p) startOnSide += ip.busWidth;
+                        totalOnSide += ip.busWidth;
+                    }
+                }
+                return getCustomPinPos(cv, p.side, totalOnSide, startOnSide + (idx - currentIdx), true);
+            }
+            currentIdx += p.busWidth;
+        }
+    }
     int n = cv.comp->numReceivers();
     if (n == 0) return cv.pos;
 
     if (hasVddGndInputs(cv.typeName)) {
-        if (idx == n - 2) {
-            return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y };
-        }
-        if (idx == n - 1) {
-            return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y + cv.size.y };
-        }
+        if (idx == n - 2) return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y };
+        if (idx == n - 1) return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y + cv.size.y };
     }
     return { cv.pos.x, receiverPos(cv, idx).y };
 }
@@ -169,7 +266,7 @@ ImVec2 Canvas::endpointPos(const Endpoint& ep, ImVec2 origin, ImVec2 canvasSize)
 
 bool Canvas::isBusComponent(const std::string& type) const
 {
-    return type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG";
+    return type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG" || type == "PORT_IN" || type == "PORT_OUT";
 }
 
 int Canvas::componentBusWidth(const ComponentView& cv) const
@@ -201,10 +298,20 @@ std::unique_ptr<Component> Canvas::makeComponent(const std::string& type, int bu
     if (type == "BUS_MERGE") return std::make_unique<BusMerge>(busWidth);
     if (type == "BUS_SPLIT") return std::make_unique<BusSplit>(busWidth);
     if (type == "REG")       return std::make_unique<Register>(busWidth);
+    if (type == "PORT_IN")   return std::make_unique<PortIn>(busWidth);
+    if (type == "PORT_OUT")  return std::make_unique<PortOut>(busWidth);
+
+    auto it = customDefs.find(type);
+    if (it != customDefs.end()) {
+        auto comp = std::make_unique<CustomComponent>(it->second);
+        if (sim) comp->registerInternals(sim);
+        return comp;
+    }
+    
     return nullptr;
 }
 
-ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth)
+ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth) const
 {
     int numReceivers = 0;
     int numDrivers = 0;
@@ -239,6 +346,17 @@ ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth)
     } else if (type == "REG") {
         numReceivers = busWidth + 1; // data bus + clock
         numDrivers = busWidth;
+    } else if (type == "PORT_IN") {
+        numReceivers = 0; // Hide receivers in UI
+        numDrivers = busWidth;
+    } else if (type == "PORT_OUT") {
+        numReceivers = busWidth;
+        numDrivers = 0; // Hide drivers in UI
+    } else {
+        auto it = customDefs.find(type);
+        if (it != customDefs.end()) {
+            return { it->second.width, it->second.height };
+        }
     }
     
     int maxPins = std::max(numReceivers, numDrivers);
@@ -801,7 +919,8 @@ int Canvas::hitDriverPin(ImVec2 wp, int& outId, bool busSide) const
                 return 0;
             }
         }
-        if (!busSide && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG")) continue;
+        if (!busSide && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
+        if (cv.typeName == "PORT_OUT") continue; // PORT_OUT has no drivers in UI
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
             ImVec2 p = driverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
@@ -826,7 +945,8 @@ int Canvas::hitReceiverPin(ImVec2 wp, int& outId, bool busSide) const
                 return 0;
             }
         }
-        if (!busSide && cv.typeName == "BUS_SPLIT") continue;
+        if (!busSide && (cv.typeName == "BUS_SPLIT" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
+        if (cv.typeName == "PORT_IN") continue; // PORT_IN has no receivers in UI
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
             ImVec2 p = receiverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
@@ -925,18 +1045,36 @@ bool Canvas::tryHandleComponentClick(int compId, bool mouseDown, bool mouseUp)
         sim->settle();
         return true;
     }
+    if (cv->typeName == "PORT_IN" && mouseUp) {
+        auto* pi = static_cast<PortIn*>(cv->comp.get());
+        pi->testValue = (pi->testValue + 1) & ((1ULL << pi->getBusWidth()) - 1);
+        pi->update();
+        sim->settle();
+        return true;
+    }
     return false;
 }
 
 void Canvas::handleScrollOnComponent(int compId, float scroll)
 {
     auto* cv = findComp(compId);
-    if (!cv || cv->typeName != "NUM_IN") return;
-    auto* ni = static_cast<NumericInput*>(cv->comp.get());
-    int v = ni->getValue();
-    v = scroll > 0 ? (v + 1) & 0xF : (v - 1) & 0xF;
-    ni->setValue(v);
-    sim->settle();
+    if (!cv) return;
+    
+    if (cv->typeName == "NUM_IN") {
+        auto* ni = static_cast<NumericInput*>(cv->comp.get());
+        int v = ni->getValue();
+        v = scroll > 0 ? (v + 1) & 0xF : (v - 1) & 0xF;
+        ni->setValue(v);
+        sim->settle();
+    } else if (cv->typeName == "PORT_IN") {
+        auto* pi = static_cast<PortIn*>(cv->comp.get());
+        uint64_t v = pi->testValue;
+        uint64_t mask = (1ULL << pi->getBusWidth()) - 1;
+        v = scroll > 0 ? (v + 1) & mask : (v - 1) & mask;
+        pi->testValue = v;
+        pi->update();
+        sim->settle();
+    }
 }
 
 std::vector<ImVec2> Canvas::routeWire(ImVec2 src, ImVec2 dst, const Endpoint& srcEp, const Endpoint& dstEp) const
@@ -1020,9 +1158,20 @@ void Canvas::drawRails(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
     }
 }
 
-static const char* pinLabel(const std::string& type, bool isInput, int idx, int busWidth)
+const char* Canvas::pinLabel(const std::string& type, bool isInput, int idx, int busWidth) const
 {
     if (isInput) {
+        auto it = customDefs.find(type);
+        if (it != customDefs.end()) {
+            int currentPin = 0;
+            for (const auto& p : it->second.inPorts) {
+                if (idx >= currentPin && idx < currentPin + p.busWidth) {
+                    return p.label.c_str();
+                }
+                currentPin += p.busWidth;
+            }
+        }
+        
         if (type == "NOT" || type == "BUF") {
             if (idx == 0) return "A";
             if (idx == 1) return "V";
@@ -1065,14 +1214,25 @@ static const char* pinLabel(const std::string& type, bool isInput, int idx, int 
             return "";
         }
     } else {
-        if (type == "BUS_MERGE") {
-            static char buf[16];
-            std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
-            return buf;
+        auto it = customDefs.find(type);
+        if (it != customDefs.end()) {
+            int currentPin = 0;
+            for (const auto& p : it->second.outPorts) {
+                if (idx >= currentPin && idx < currentPin + p.busWidth) {
+                    return p.label.c_str();
+                }
+                currentPin += p.busWidth;
+            }
         }
+        
         if (type == "BUS_SPLIT") {
             static char buf[8];
             std::snprintf(buf, sizeof(buf), "%d", idx);
+            return buf;
+        }
+        if (type == "BUS_MERGE") {
+            static char buf[16];
+            std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
             return buf;
         }
         if (type == "REG") {
@@ -1127,11 +1287,18 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         }
     } else if (fontSize >= 8.f) {
         ImVec2 centre = { (tl.x + br.x) * .5f, (tl.y + br.y) * .5f };
-        ImVec2 ts     = ImGui::CalcTextSize(cv.typeName.c_str());
+        std::string labelStr = cv.typeName;
+        if (cv.typeName == "PORT_IN") {
+            if (auto* pi = dynamic_cast<PortIn*>(cv.comp.get())) labelStr = pi->label;
+        } else if (cv.typeName == "PORT_OUT") {
+            if (auto* po = dynamic_cast<PortOut*>(cv.comp.get())) labelStr = po->label;
+        }
+        
+        ImVec2 ts     = ImGui::CalcTextSize(labelStr.c_str());
         float scale   = fontSize / ImGui::GetFontSize();
         dl->AddText(ImGui::GetFont(), fontSize,
                     { centre.x - ts.x * scale * .5f, centre.y - ts.y * scale * .5f },
-                    IM_COL32(220, 225, 240, 255), cv.typeName.c_str());
+                    IM_COL32(220, 225, 240, 255), labelStr.c_str());
     }
 
     if (cv.typeName == "LED") {
@@ -1147,14 +1314,18 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     int bw = componentBusWidth(cv);
 
     for (int i = 0; i < cv.comp->numReceivers(); ++i) {
-        if ((cv.typeName == "BUS_SPLIT" || cv.typeName == "REG") && i > 0 && i < bw) continue;
+        if (cv.typeName == "PORT_IN") break; // Don't draw receivers for PORT_IN
+        if ((cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT") && i > 0 && i < bw) continue;
         ImVec2 tip, edge;
+        ImVec2 edgeW;
         if (isBusComponent(cv.typeName) && i == 0 && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG")) {
+            edgeW = {cv.pos.x, busReceiverPos(cv).y};
             tip  = w2s(busReceiverPos(cv), origin);
-            edge = w2s({cv.pos.x, busReceiverPos(cv).y}, origin);
+            edge = w2s(edgeW, origin);
         } else {
+            edgeW = receiverEdgePos(cv, i);
             tip  = w2s(receiverPos(cv, i), origin);
-            edge = w2s(receiverEdgePos(cv, i), origin);
+            edge = w2s(edgeW, origin);
         }
         State st  = cv.comp->getReceiver(i)->getState();
         ImU32 col = stateColor(st);
@@ -1168,15 +1339,14 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             ImVec2 ts = ImGui::CalcTextSize(lbl);
             float sc = fontSize / ImGui::GetFontSize() * 0.75f;
             ImVec2 textPos;
-            if (hasVddGndInputs(cv.typeName) && i == cv.comp->numReceivers() - 2) {
-                // VDD: top border, center horizontally, offset downwards inside
-                textPos = { edge.x - ts.x * sc * 0.5f, edge.y + 2.f * zoom };
-            } else if (hasVddGndInputs(cv.typeName) && i == cv.comp->numReceivers() - 1) {
-                // GND: bottom border, center horizontally, offset upwards inside
-                textPos = { edge.x - ts.x * sc * 0.5f, edge.y - ts.y * sc - 2.f * zoom };
+            if (std::abs(edgeW.x - cv.pos.x) < 0.1f) {
+                textPos = { edge.x + 3.f * zoom, edge.y - ts.y * sc * 0.5f }; // inside left
+            } else if (std::abs(edgeW.x - (cv.pos.x + cv.size.x)) < 0.1f) {
+                textPos = { edge.x - ts.x * sc - 3.f * zoom, edge.y - ts.y * sc * 0.5f }; // inside right
+            } else if (std::abs(edgeW.y - cv.pos.y) < 0.1f) {
+                textPos = { edge.x - ts.x * sc * 0.5f, edge.y + 3.f * zoom }; // inside top
             } else {
-                // Regular left-side inputs
-                textPos = { edge.x + 3.f * zoom, edge.y - ts.y * sc * 0.5f };
+                textPos = { edge.x - ts.x * sc * 0.5f, edge.y - ts.y * sc - 3.f * zoom }; // inside bottom
             }
             dl->AddText(ImGui::GetFont(), fontSize * .75f, textPos,
                         IM_COL32(160,165,180,220), lbl);
@@ -1184,14 +1354,18 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     }
 
     for (int i = 0; i < cv.comp->numDrivers(); ++i) {
-        if ((cv.typeName == "BUS_MERGE" || cv.typeName == "REG") && i > 0) continue;
+        if (cv.typeName == "PORT_OUT") break; // Don't draw drivers for PORT_OUT
+        if ((cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN") && i > 0) continue;
         ImVec2 tip, edge;
+        ImVec2 edgeW;
         if (isBusComponent(cv.typeName) && i == 0 && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG")) {
+            edgeW = {cv.pos.x + cv.size.x, busDriverPos(cv).y};
             tip  = w2s(busDriverPos(cv), origin);
-            edge = w2s({cv.pos.x + cv.size.x, busDriverPos(cv).y}, origin);
+            edge = w2s(edgeW, origin);
         } else {
+            edgeW = driverEdgePos(cv, i);
             tip  = w2s(driverPos(cv, i), origin);
-            edge = w2s({cv.pos.x + cv.size.x, driverPos(cv, i).y}, origin);
+            edge = w2s(edgeW, origin);
         }
         State st  = cv.comp->getDriver(i)->getState();
         ImU32 col = stateColor(st);
@@ -1204,8 +1378,17 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         if (*lbl && fontSize >= 9.f) {
             ImVec2 ts = ImGui::CalcTextSize(lbl);
             float sc = fontSize / ImGui::GetFontSize() * 0.75f;
-            dl->AddText(ImGui::GetFont(), fontSize * .75f,
-                        { edge.x - ts.x * sc - 3.f, edge.y - ts.y * sc * .5f },
+            ImVec2 textPos;
+            if (std::abs(edgeW.x - cv.pos.x) < 0.1f) {
+                textPos = { edge.x + 3.f * zoom, edge.y - ts.y * sc * 0.5f }; // inside left
+            } else if (std::abs(edgeW.x - (cv.pos.x + cv.size.x)) < 0.1f) {
+                textPos = { edge.x - ts.x * sc - 3.f * zoom, edge.y - ts.y * sc * 0.5f }; // inside right
+            } else if (std::abs(edgeW.y - cv.pos.y) < 0.1f) {
+                textPos = { edge.x - ts.x * sc * 0.5f, edge.y + 3.f * zoom }; // inside top
+            } else {
+                textPos = { edge.x - ts.x * sc * 0.5f, edge.y - ts.y * sc - 3.f * zoom }; // inside bottom
+            }
+            dl->AddText(ImGui::GetFont(), fontSize * .75f, textPos,
                         IM_COL32(160,165,180,220), lbl);
         }
     }

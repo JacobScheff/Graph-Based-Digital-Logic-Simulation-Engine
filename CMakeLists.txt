@@ -51,6 +51,8 @@ set(SIM_SRC
     ${SRC}/PowerRails.cpp
     ${SRC}/Simulator.cpp
     ${SRC}/Canvas.cpp
+    ${SRC}/CanvasSerialization.cpp
+    ${SRC}/CustomComponent.cpp
     ${SRC}/App.cpp
     ${SRC}/main.cpp
 )

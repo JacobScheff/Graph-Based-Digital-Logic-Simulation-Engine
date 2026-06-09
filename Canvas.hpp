@@ -6,6 +6,8 @@
 #include "imgui.h"
 #include "Simulator.hpp"
 #include "Components.hpp"
+#include "CustomComponent.hpp"
+#include <unordered_map>
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 
@@ -18,6 +20,9 @@ public:
     void render();
 
     void beginPlacement(const std::string& typeName, int busWidth = 1);
+    
+    // Custom component definitions
+    std::unordered_map<std::string, CustomComponentDef> customDefs;
 
     Component*         getSelectedComponent() const;
     const std::string& getSelectedTypeName()  const;
@@ -31,7 +36,13 @@ public:
     void deleteSelected();
     void settle() { if (sim) sim->settle(); }
 
+    std::string serialize() const;
+    void deserialize(const std::string& data);
+
+    const auto& getComps() const { return comps; }
+
 private:
+    friend class CustomComponent;
     enum class EndpointKind { Component, Rail, Junction };
 
     struct Endpoint {
@@ -119,7 +130,9 @@ private:
     ImVec2 s2w(ImVec2 screen, ImVec2 origin) const;
     ImVec2 snapToGrid(ImVec2 w) const;
 
+    ImVec2 getCustomPinPos(const ComponentView& cv, int side, int totalOnSide, int idxOnSide, bool isEdge) const;
     ImVec2 driverPos(const ComponentView& cv, int idx) const;
+    ImVec2 driverEdgePos(const ComponentView& cv, int idx) const;
     ImVec2 receiverPos(const ComponentView& cv, int idx) const;
     ImVec2 receiverEdgePos(const ComponentView& cv, int idx) const;
     ImVec2 busDriverPos(const ComponentView& cv) const;
@@ -127,6 +140,7 @@ private:
     ImVec2 endpointPos(const Endpoint& ep, ImVec2 origin, ImVec2 canvasSize) const;
     ImVec2 railTapWorldX(float worldX) const;
     float  railScreenY(bool vdd, ImVec2 origin) const;
+    const char* pinLabel(const std::string& type, bool isInput, int idx, int busWidth) const;
 
     int hitComp(ImVec2 wp) const;
     int hitDriverPin(ImVec2 wp, int& outId, bool busSide = false) const;
@@ -151,7 +165,7 @@ private:
     std::unique_ptr<Component> makeComponent(const std::string& type, int busWidth = 1);
     void placeAt(const std::string& type, ImVec2 worldPos, int busWidth = 1);
 
-    static ImVec2 getComponentSize(const std::string& type, int busWidth);
+    ImVec2 getComponentSize(const std::string& type, int busWidth) const;
 
     void completeWire(const Endpoint& src, const Endpoint& dst, int busWidth = 1);
     void completeWireSingle(Driver* drv, Receiver* rcv, const Endpoint& src, const Endpoint& dst);

@@ -3,6 +3,9 @@
 #include "Pin.hpp"
 #include "Net.hpp"
 #include "PowerRails.hpp"
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -184,12 +187,177 @@ void App::renderFrame()
             }
             ImGui::PopStyleColor(3);
         };
+        busBtn("1-bit", 1);
+        ImGui::SameLine();
         busBtn("2-bit", 2);
         ImGui::SameLine();
         busBtn("4-bit", 4);
         ImGui::SameLine();
         busBtn("8-bit", 8);
         ImGui::Spacing();
+        if (ImGui::Button("Cancel", {88, 28}))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    if (showSaveCustomPopup) {
+        ImGui::OpenPopup("Save Custom Component");
+        showSaveCustomPopup = false;
+    }
+    if (ImGui::BeginPopupModal("Save Custom Component", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::InputText("Component Name", saveCustomName, sizeof(saveCustomName));
+        ImGui::InputInt("Width", &saveCustomWidth);
+        ImGui::InputInt("Height", &saveCustomHeight);
+        
+        ImGui::Separator();
+        ImGui::Text("Input Ports");
+        for (auto& p : saveInPorts) {
+            ImGui::PushID(p.id);
+            ImGui::Text("%s (%d-bit)", p.label.c_str(), p.busWidth);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(100);
+            ImGui::Combo("Edge", &p.side, "Left\0Top\0Right\0Bottom\0");
+            ImGui::PopID();
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Output Ports");
+        for (auto& p : saveOutPorts) {
+            ImGui::PushID(p.id);
+            ImGui::Text("%s (%d-bit)", p.label.c_str(), p.busWidth);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(100);
+            ImGui::Combo("Edge", &p.side, "Left\0Top\0Right\0Bottom\0");
+            ImGui::PopID();
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Save", {88, 28})) {
+            CustomComponentDef def;
+            def.typeName = saveCustomName;
+            def.width = saveCustomWidth;
+            def.height = saveCustomHeight;
+            def.canvasJson = canvas.serialize();
+            
+            for (auto& p : saveInPorts) {
+                CustomPortDef cpd;
+                cpd.internalCompId = p.id;
+                cpd.label = p.label;
+                cpd.busWidth = p.busWidth;
+                cpd.side = p.side;
+                cpd.order = p.order; // We will just append them in order for now
+                def.inPorts.push_back(cpd);
+            }
+            for (auto& p : saveOutPorts) {
+                CustomPortDef cpd;
+                cpd.internalCompId = p.id;
+                cpd.label = p.label;
+                cpd.busWidth = p.busWidth;
+                cpd.side = p.side;
+                cpd.order = p.order;
+                def.outPorts.push_back(cpd);
+            }
+
+            // Save JSON to disk
+            json j;
+            j["typeName"] = def.typeName;
+            j["width"] = def.width;
+            j["height"] = def.height;
+            j["canvasJson"] = def.canvasJson;
+            
+            auto portsToJson = [](const std::vector<CustomPortDef>& ports) {
+                json arr = json::array();
+                for (const auto& p : ports) {
+                    json jp;
+                    jp["internalCompId"] = p.internalCompId;
+                    jp["label"] = p.label;
+                    jp["busWidth"] = p.busWidth;
+                    jp["side"] = p.side;
+                    jp["order"] = p.order;
+                    arr.push_back(jp);
+                }
+                return arr;
+            };
+            j["inPorts"] = portsToJson(def.inPorts);
+            j["outPorts"] = portsToJson(def.outPorts);
+
+            // We should use a file browser, but for simplicity we save to current dir
+            std::string filename = std::string(saveCustomName) + ".json";
+            FILE* f = fopen(filename.c_str(), "w");
+            if (f) {
+                std::string out = j.dump(4);
+                fwrite(out.c_str(), 1, out.size(), f);
+                fclose(f);
+            }
+
+            // Register it locally immediately
+            canvas.customDefs[def.typeName] = def;
+
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", {88, 28}))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    if (showLoadCustomPopup) {
+        ImGui::OpenPopup("Load Custom Component");
+        showLoadCustomPopup = false;
+    }
+    if (ImGui::BeginPopupModal("Load Custom Component", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::InputText("Filename", loadCustomName, sizeof(loadCustomName));
+        ImGui::Spacing();
+        if (ImGui::Button("Load", {88, 28})) {
+            std::string filename = std::string(loadCustomName);
+            if (filename.find(".json") == std::string::npos) filename += ".json";
+            
+            FILE* f = fopen(filename.c_str(), "r");
+            if (f) {
+                fseek(f, 0, SEEK_END);
+                long size = ftell(f);
+                fseek(f, 0, SEEK_SET);
+                std::string data(size, ' ');
+                fread(&data[0], 1, size, f);
+                fclose(f);
+                
+                try {
+                    json j = json::parse(data);
+                    CustomComponentDef def;
+                    def.typeName = j.value("typeName", "Custom");
+                    def.width = j.value("width", 100);
+                    def.height = j.value("height", 100);
+                    def.canvasJson = j.value("canvasJson", "");
+                    
+                    if (j.contains("inPorts")) {
+                        for (auto& jp : j["inPorts"]) {
+                            CustomPortDef p;
+                            p.internalCompId = jp.value("internalCompId", -1);
+                            p.label = jp.value("label", "in");
+                            p.busWidth = jp.value("busWidth", 1);
+                            p.side = jp.value("side", 0);
+                            p.order = jp.value("order", 0);
+                            def.inPorts.push_back(p);
+                        }
+                    }
+                    if (j.contains("outPorts")) {
+                        for (auto& jp : j["outPorts"]) {
+                            CustomPortDef p;
+                            p.internalCompId = jp.value("internalCompId", -1);
+                            p.label = jp.value("label", "out");
+                            p.busWidth = jp.value("busWidth", 1);
+                            p.side = jp.value("side", 0);
+                            p.order = jp.value("order", 0);
+                            def.outPorts.push_back(p);
+                        }
+                    }
+                    
+                    canvas.customDefs[def.typeName] = def;
+                } catch (...) {}
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
         if (ImGui::Button("Cancel", {88, 28}))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
@@ -204,6 +372,33 @@ void App::renderMenuBar()
 
     if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("New"))  { /* TODO */ }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Save Custom Component")) {
+            showSaveCustomPopup = true;
+            saveCustomName[0] = '\0';
+            saveCustomWidth = 100;
+            saveCustomHeight = 100;
+            saveInPorts.clear();
+            saveOutPorts.clear();
+            for (const auto& cv : canvas.getComps()) {
+                if (cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT") {
+                    PortUI p;
+                    p.id = cv.id;
+                    p.busWidth = cv.busWidth;
+                    if (cv.typeName == "PORT_IN") {
+                        if (auto* pi = dynamic_cast<PortIn*>(cv.comp.get())) p.label = pi->label;
+                        saveInPorts.push_back(p);
+                    } else {
+                        if (auto* po = dynamic_cast<PortOut*>(cv.comp.get())) p.label = po->label;
+                        saveOutPorts.push_back(p);
+                    }
+                }
+            }
+        }
+        if (ImGui::MenuItem("Load Custom Component")) {
+            showLoadCustomPopup = true;
+            loadCustomName[0] = '\0';
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Exit")) { glfwSetWindowShouldClose(window, GLFW_TRUE); }
         ImGui::EndMenu();
@@ -277,6 +472,15 @@ void App::renderPalette()
         ImGui::Unindent(4.f);
     }
 
+    if (ImGui::CollapsingHeader("Custom Components", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent(4.f);
+        ImGui::Spacing();
+        busPaletteBtn("Port In",  "PORT_IN",  "Boundary input for packaging custom components");
+        busPaletteBtn("Port Out", "PORT_OUT", "Boundary output for packaging custom components");
+        ImGui::Spacing();
+        ImGui::Unindent(4.f);
+    }
+
     if (ImGui::CollapsingHeader("Inputs / Sources", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Indent(4.f);
         ImGui::Spacing();
@@ -305,6 +509,18 @@ void App::renderPalette()
         paletteBtn("Num Disp", "NUM_DISP", "4-bit numeric display (0\xe2\x80\x93" "15)");
         ImGui::Spacing();
         ImGui::Unindent(4.f);
+    }
+
+    if (!canvas.customDefs.empty()) {
+        if (ImGui::CollapsingHeader("Loaded Custom", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Indent(4.f);
+            ImGui::Spacing();
+            for (const auto& [name, def] : canvas.customDefs) {
+                paletteBtn(name.c_str(), name.c_str(), "Custom user component");
+            }
+            ImGui::Spacing();
+            ImGui::Unindent(4.f);
+        }
     }
 
     ImGui::Spacing();
@@ -407,8 +623,22 @@ void App::renderProperties()
         return;
     }
 
-    // Component header
-    ImGui::SeparatorText(type.c_str());
+    if (type == "PORT_IN") {
+        auto* p = static_cast<PortIn*>(comp);
+        char buf[32];
+        strncpy(buf, p->label.c_str(), sizeof(buf));
+        if (ImGui::InputText("Label", buf, sizeof(buf))) {
+            p->label = buf;
+        }
+    }
+    if (type == "PORT_OUT") {
+        auto* p = static_cast<PortOut*>(comp);
+        char buf[32];
+        strncpy(buf, p->label.c_str(), sizeof(buf));
+        if (ImGui::InputText("Label", buf, sizeof(buf))) {
+            p->label = buf;
+        }
+    }
 
     if (type == "SW") {
         auto* sw = static_cast<Switch*>(comp);

@@ -28,6 +28,26 @@ private:
     bool        showBusWidthPopup = false;
     std::string pendingBusType;
 
+    // Custom Component Save Modal State
+    bool showSaveCustomPopup = false;
+    char saveCustomName[128] = "";
+    int  saveCustomWidth = 100;
+    int  saveCustomHeight = 100;
+    
+    bool showLoadCustomPopup = false;
+    char loadCustomName[128] = "";
+    
+    // Data populated when opening Save modal
+    struct PortUI {
+        int id;
+        std::string label;
+        int busWidth;
+        int side = 0; // 0=L, 1=T, 2=R, 3=B
+        int order = 0;
+    };
+    std::vector<PortUI> saveInPorts;
+    std::vector<PortUI> saveOutPorts;
+
     void tick(double dt);
     void renderFrame();
 
@@ -37,7 +57,7 @@ private:
     void renderProperties();
     void renderSimControls();
     void renderCanvas();
-    void buildDefaultLayout(ImGuiID dockId);
+    void buildDefaultLayout(unsigned int dockId);
 
     static void applyDarkTheme();
     static void glfwErrorCallback(int, const char*);
