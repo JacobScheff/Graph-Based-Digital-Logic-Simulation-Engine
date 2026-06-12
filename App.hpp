@@ -59,6 +59,18 @@ private:
     void renderCanvas();
     void buildDefaultLayout(unsigned int dockId);
 
+    std::string currentFilePath;
+    std::vector<std::string> customComponentPaths;
+    void loadRegistry();
+    void saveRegistry();
+    void appendToRegistry(const std::string& path);
+    bool loadCustomComponentFile(const std::string& filename);
+    
+    // Palette Edit Context Menu
+    std::string componentToEditPath;
+    std::string componentToEditName;
+    bool showConfirmEditModal = false;
+
     static void applyDarkTheme();
     static void glfwErrorCallback(int, const char*);
 };

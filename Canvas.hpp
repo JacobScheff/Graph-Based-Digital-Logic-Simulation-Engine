@@ -37,7 +37,7 @@ public:
     void settle() { if (sim) sim->settle(); }
 
     std::string serialize() const;
-    void deserialize(const std::string& data);
+    void        deserialize(const std::string& data, bool ignoreInputStates = false);
 
     const auto& getComps() const { return comps; }
 

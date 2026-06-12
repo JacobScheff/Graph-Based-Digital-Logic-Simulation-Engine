@@ -35,7 +35,7 @@ void CustomComponent::registerInternals(Simulator* sim)
 
     // Create a temporary canvas attached to this simulator
     Canvas tempCanvas(sim);
-    tempCanvas.deserialize(def.canvasJson);
+    tempCanvas.deserialize(def.canvasJson, true);
 
     // Steal all the instantiated components
     std::unordered_map<int, Component*> compMap;

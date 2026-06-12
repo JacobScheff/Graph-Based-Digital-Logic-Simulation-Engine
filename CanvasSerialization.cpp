@@ -28,6 +28,12 @@ std::string Canvas::serialize() const
         } else if (cv.typeName == "CLK") {
             if (auto* c = dynamic_cast<Clock*>(cv.comp.get()))
                 jc["clockPeriod"] = c->getHalfPeriod();
+        } else if (cv.typeName == "SW") {
+            if (auto* s = dynamic_cast<Switch*>(cv.comp.get()))
+                jc["state"] = s->isOn();
+        } else if (cv.typeName == "BTN") {
+            if (auto* b = dynamic_cast<Button*>(cv.comp.get()))
+                jc["state"] = b->isPressed();
         }
 
         // Serialize PinLayout
@@ -95,7 +101,7 @@ std::string Canvas::serialize() const
     return j.dump(4);
 }
 
-void Canvas::deserialize(const std::string& data)
+void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
 {
     if (data.empty()) return;
     
@@ -137,6 +143,22 @@ void Canvas::deserialize(const std::string& data)
                 } else if (cv.typeName == "CLK") {
                     if (auto* c = dynamic_cast<Clock*>(cv.comp.get()))
                         c->setHalfPeriod(jc.value("clockPeriod", 10));
+                } else if (!ignoreInputStates) {
+                    if (cv.typeName == "SW") {
+                        if (auto* s = dynamic_cast<Switch*>(cv.comp.get())) {
+                            bool isHigh = jc.value("state", false);
+                            s->setOutput(isHigh);
+                        }
+                    } else if (cv.typeName == "BTN") {
+                        if (auto* b = dynamic_cast<Button*>(cv.comp.get())) {
+                            bool isHigh = jc.value("state", false);
+                            if (isHigh) {
+                                b->press();
+                            } else {
+                                b->release();
+                            }
+                        }
+                    }
                 }
                 
                 // Load PinLayout or initialize defaults

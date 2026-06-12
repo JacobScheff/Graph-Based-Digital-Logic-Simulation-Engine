@@ -18,6 +18,90 @@ using json = nlohmann::json;
 #include <cstring>
 #include <algorithm>
 #include <cctype>
+#include <fstream>
+
+bool App::loadCustomComponentFile(const std::string& filename) {
+    FILE* f = fopen(filename.c_str(), "r");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    std::string data(size, ' ');
+    fread(&data[0], 1, size, f);
+    fclose(f);
+    
+    try {
+        json j = json::parse(data);
+        CustomComponentDef def;
+        def.typeName = j.value("typeName", "Custom");
+        def.width = j.value("width", 100);
+        def.height = j.value("height", 100);
+        def.canvasJson = j.value("canvasJson", "");
+        
+        if (j.contains("inPorts")) {
+            for (auto& jp : j["inPorts"]) {
+                CustomPortDef p;
+                p.internalCompId = jp.value("internalCompId", -1);
+                p.label = jp.value("label", "in");
+                p.busWidth = jp.value("busWidth", 1);
+                p.side = jp.value("side", 0);
+                p.order = jp.value("order", 0);
+                def.inPorts.push_back(p);
+            }
+        }
+        if (j.contains("outPorts")) {
+            for (auto& jp : j["outPorts"]) {
+                CustomPortDef p;
+                p.internalCompId = jp.value("internalCompId", -1);
+                p.label = jp.value("label", "out");
+                p.busWidth = jp.value("busWidth", 1);
+                p.side = jp.value("side", 0);
+                p.order = jp.value("order", 0);
+                def.outPorts.push_back(p);
+            }
+        }
+        
+        canvas.customDefs[def.typeName] = def;
+        return true;
+    } catch (...) {}
+    return false;
+}
+
+void App::loadRegistry() {
+    std::ifstream f("custom_components.json");
+    if (f.is_open()) {
+        json j;
+        try {
+            f >> j;
+            if (j.is_array()) {
+                for (const auto& p : j) {
+                    std::string path = p.get<std::string>();
+                    if (loadCustomComponentFile(path)) {
+                        customComponentPaths.push_back(path);
+                    }
+                }
+            }
+        } catch(...) {}
+    }
+}
+
+void App::saveRegistry() {
+    json j = json::array();
+    for (const auto& p : customComponentPaths) {
+        j.push_back(p);
+    }
+    std::ofstream f("custom_components.json");
+    if (f.is_open()) {
+        f << j.dump(4);
+    }
+}
+
+void App::appendToRegistry(const std::string& path) {
+    if (std::find(customComponentPaths.begin(), customComponentPaths.end(), path) == customComponentPaths.end()) {
+        customComponentPaths.push_back(path);
+        saveRegistry();
+    }
+}
 
 void App::glfwErrorCallback(int err, const char* desc)
 {
@@ -55,6 +139,9 @@ bool App::init()
 
     sim.setTicksPerSecond(simSpeedTPS);
     lastTime = glfwGetTime();
+
+    loadRegistry();
+
     return true;
 }
 
@@ -285,12 +372,13 @@ void App::renderFrame()
             j["outPorts"] = portsToJson(def.outPorts);
 
             // We should use a file browser, but for simplicity we save to current dir
-            std::string filename = std::string(saveCustomName) + ".json";
+            std::string filename = currentFilePath.empty() ? (std::string(saveCustomName) + ".json") : currentFilePath;
             FILE* f = fopen(filename.c_str(), "w");
             if (f) {
                 std::string out = j.dump(4);
                 fwrite(out.c_str(), 1, out.size(), f);
                 fclose(f);
+                appendToRegistry(filename);
             }
 
             // Register it locally immediately
@@ -314,49 +402,8 @@ void App::renderFrame()
         if (ImGui::Button("Load", {88, 28})) {
             std::string filename = std::string(loadCustomName);
             if (filename.find(".json") == std::string::npos) filename += ".json";
-            
-            FILE* f = fopen(filename.c_str(), "r");
-            if (f) {
-                fseek(f, 0, SEEK_END);
-                long size = ftell(f);
-                fseek(f, 0, SEEK_SET);
-                std::string data(size, ' ');
-                fread(&data[0], 1, size, f);
-                fclose(f);
-                
-                try {
-                    json j = json::parse(data);
-                    CustomComponentDef def;
-                    def.typeName = j.value("typeName", "Custom");
-                    def.width = j.value("width", 100);
-                    def.height = j.value("height", 100);
-                    def.canvasJson = j.value("canvasJson", "");
-                    
-                    if (j.contains("inPorts")) {
-                        for (auto& jp : j["inPorts"]) {
-                            CustomPortDef p;
-                            p.internalCompId = jp.value("internalCompId", -1);
-                            p.label = jp.value("label", "in");
-                            p.busWidth = jp.value("busWidth", 1);
-                            p.side = jp.value("side", 0);
-                            p.order = jp.value("order", 0);
-                            def.inPorts.push_back(p);
-                        }
-                    }
-                    if (j.contains("outPorts")) {
-                        for (auto& jp : j["outPorts"]) {
-                            CustomPortDef p;
-                            p.internalCompId = jp.value("internalCompId", -1);
-                            p.label = jp.value("label", "out");
-                            p.busWidth = jp.value("busWidth", 1);
-                            p.side = jp.value("side", 0);
-                            p.order = jp.value("order", 0);
-                            def.outPorts.push_back(p);
-                        }
-                    }
-                    
-                    canvas.customDefs[def.typeName] = def;
-                } catch (...) {}
+            if (loadCustomComponentFile(filename)) {
+                appendToRegistry(filename);
             }
             ImGui::CloseCurrentPopup();
         }
@@ -646,7 +693,24 @@ void App::renderPalette()
             ImGui::Indent(4.f);
             ImGui::Spacing();
             for (const auto& [name, def] : canvas.customDefs) {
-                paletteBtn(name.c_str(), name.c_str(), "Custom user component");
+                paletteBtn(name.c_str(), name.c_str(), "Custom user component\nRight-click to Edit");
+                if (ImGui::BeginPopupContextItem((name + "_ctx").c_str())) {
+                    if (ImGui::Selectable("Edit Component")) {
+                        componentToEditName = name;
+                        
+                        // find path
+                        componentToEditPath = name + ".json";
+                        for (const auto& p : customComponentPaths) {
+                            if (p.find(name + ".json") != std::string::npos) {
+                                componentToEditPath = p;
+                                break;
+                            }
+                        }
+                        
+                        showConfirmEditModal = true;
+                    }
+                    ImGui::EndPopup();
+                }
             }
             ImGui::Spacing();
             ImGui::Unindent(4.f);
@@ -669,6 +733,33 @@ void App::renderPalette()
         ImGui::TextDisabled("Esc  Clear selection");
         ImGui::Spacing();
         ImGui::Unindent(4.f);
+    }
+
+    if (showConfirmEditModal) {
+        ImGui::OpenPopup("Confirm Edit Component");
+        showConfirmEditModal = false;
+    }
+
+    if (ImGui::BeginPopupModal("Confirm Edit Component", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Editing a component will erase any unsaved progress on the current board!");
+        ImGui::Text("Are you sure you want to proceed?");
+        ImGui::Separator();
+        
+        if (ImGui::Button("Yes, Edit Component", ImVec2(150, 0))) {
+            auto it = canvas.customDefs.find(componentToEditName);
+            if (it != canvas.customDefs.end()) {
+                canvas.deserialize(it->second.canvasJson, false);
+                currentFilePath = componentToEditPath;
+                strncpy(saveCustomName, componentToEditName.c_str(), sizeof(saveCustomName) - 1);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::End();
