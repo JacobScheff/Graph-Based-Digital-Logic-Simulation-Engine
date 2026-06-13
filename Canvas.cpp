@@ -401,9 +401,9 @@ ImVec2 Canvas::endpointPos(const Endpoint& ep, ImVec2 origin, ImVec2 canvasSize)
             const auto* cv = findComp(ep.compId);
             if (!cv) return {0, 0};
             if (isBusComponent(cv->typeName) && ep.pinIdx == 0) {
-                if (cv->typeName == "BUS_MERGE" && ep.isDriver)
+                if ((cv->typeName == "BUS_MERGE" || cv->typeName == "REG" || cv->typeName == "PORT_IN") && ep.isDriver)
                     return busDriverPos(*cv);
-                if (cv->typeName == "BUS_SPLIT" && !ep.isDriver)
+                if ((cv->typeName == "BUS_SPLIT" || cv->typeName == "REG" || cv->typeName == "PORT_OUT") && !ep.isDriver)
                     return busReceiverPos(*cv);
             }
             if (ep.isDriver) {
@@ -537,6 +537,7 @@ Canvas::ComponentView Canvas::makeView(const std::string& type, ImVec2 worldPos,
     cv.typeName = type;
     cv.busWidth = busWidth;
     cv.comp     = makeComponent(type, busWidth);
+    if (!cv.comp) return cv; // Return invalid component rather than segfault
     cv.comp->setBusWidth(busWidth);
     cv.pos      = worldPos;
     cv.size     = getComponentSize(type, busWidth);
@@ -558,7 +559,9 @@ void Canvas::placeAt(const std::string& type, ImVec2 worldPos, int busWidth)
     worldPos.x -= COMP_W / 2.f;
     worldPos.y -= 30.f;
 
-    comps.push_back(makeView(type, worldPos, busWidth));
+    auto cv = makeView(type, worldPos, busWidth);
+    if (!cv.comp) return;
+    comps.push_back(std::move(cv));
     selectedId = comps.back().id;
 }
 
@@ -724,67 +727,16 @@ void Canvas::completeWire(const Endpoint& srcIn, const Endpoint& dstIn, int busW
 
 void Canvas::removeWiresOf(int compId)
 {
-    std::vector<WireView> remaining;
-    for (auto& wv : wires) {
-        bool touches = (wv.src.kind == EndpointKind::Component && wv.src.compId == compId)
-                    || (wv.dst.kind == EndpointKind::Component && wv.dst.compId == compId);
-        if (touches) {
-            if (wv.src.kind == EndpointKind::Component && wv.src.compId == compId) {
-                if (auto* cv = findComp(wv.src.compId)) {
-                    if (wv.busWidth <= 1) {
-                        if (auto* d = cv->comp->getDriver(wv.src.pinIdx))
-                            sim->disconnectDriver(d);
-                    } else {
-                        for (int i = 0; i < wv.busWidth; ++i)
-                            sim->disconnectDriver(cv->comp->getDriver(i));
-                    }
-                }
-            }
-            if (wv.dst.kind == EndpointKind::Component && wv.dst.compId == compId) {
-                if (auto* cv = findComp(wv.dst.compId)) {
-                    if (wv.busWidth <= 1) {
-                        sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
-                    } else {
-                        for (int i = 0; i < wv.busWidth; ++i)
-                            sim->disconnectReceiver(cv->comp->getReceiver(i));
-                    }
-                }
-            }
-            if (wv.net && wv.net != sim->getVddNet() && wv.net != sim->getGndNet()) {
-                if (wv.net->getDrivers().empty() && wv.net->getReceivers().empty()) {
-                    Net* netToDelete = wv.net;
-                    sim->removeNet(netToDelete);
-                    for (auto& w : wires) {
-                        if (w.net == netToDelete) w.net = nullptr;
-                        for (auto& bn : w.busNets) {
-                            if (bn == netToDelete) bn = nullptr;
-                        }
-                    }
-                    for (auto& j : junctions) {
-                        if (j.net == netToDelete) j.net = nullptr;
-                    }
-                }
-            }
-            for (Net* bn : wv.busNets) {
-                if (bn && bn != sim->getVddNet() && bn != sim->getGndNet()
-                    && bn->getDrivers().empty() && bn->getReceivers().empty()) {
-                    sim->removeNet(bn);
-                    for (auto& w : wires) {
-                        if (w.net == bn) w.net = nullptr;
-                        for (auto& bnn : w.busNets) {
-                            if (bnn == bn) bnn = nullptr;
-                        }
-                    }
-                    for (auto& j : junctions) {
-                        if (j.net == bn) j.net = nullptr;
-                    }
-                }
-            }
-        } else {
-            remaining.push_back(std::move(wv));
+    std::vector<int> toRemove;
+    for (const auto& wv : wires) {
+        if ((wv.src.kind == EndpointKind::Component && wv.src.compId == compId) ||
+            (wv.dst.kind == EndpointKind::Component && wv.dst.compId == compId)) {
+            toRemove.push_back(wv.id);
         }
     }
-    wires = std::move(remaining);
+    for (int id : toRemove) {
+        removeWire(id);
+    }
     cleanupDanglingJunctions();
 }
 
@@ -905,7 +857,9 @@ void Canvas::deleteSelected()
         else {
             for (int i = (int)w.waypointSelected.size() - 1; i >= 0; --i) {
                 if (w.waypointSelected[i]) {
-                    w.waypoints.erase(w.waypoints.begin() + i);
+                    if (i < (int)w.waypoints.size()) {
+                        w.waypoints.erase(w.waypoints.begin() + i);
+                    }
                     w.waypointSelected.erase(w.waypointSelected.begin() + i);
                 }
             }
@@ -1228,8 +1182,35 @@ int Canvas::hitWaypoint(ImVec2 wp, ImVec2 origin, ImVec2 size, int& outWaypointI
 
 int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriver) const
 {
-    // Check driver pins
+    // Check bus driver pins first (REG, BUS_MERGE, PORT_IN, PORT_OUT)
     for (const auto& cv : comps) {
+        if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN")) {
+            ImVec2 p = busDriverPos(cv);
+            float dx = wp.x - p.x, dy = wp.y - p.y;
+            if (dx*dx + dy*dy <= (PIN_RAD+6)*(PIN_RAD+6)) {
+                outCompId = cv.id;
+                outPinIdx = 0;
+                outIsDriver = true;
+                return cv.id;
+            }
+        }
+    }
+    // Check bus receiver pins first (BUS_SPLIT, REG, PORT_OUT)
+    for (const auto& cv : comps) {
+        if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT")) {
+            ImVec2 p = busReceiverPos(cv);
+            float dx = wp.x - p.x, dy = wp.y - p.y;
+            if (dx*dx + dy*dy <= (PIN_RAD+6)*(PIN_RAD+6)) {
+                outCompId = cv.id;
+                outPinIdx = 0;
+                outIsDriver = false;
+                return cv.id;
+            }
+        }
+    }
+    // Check individual driver pins
+    for (const auto& cv : comps) {
+        if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
             ImVec2 p = driverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
@@ -1241,8 +1222,9 @@ int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriv
             }
         }
     }
-    // Check receiver pins
+    // Check individual receiver pins
     for (const auto& cv : comps) {
+        if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
             ImVec2 p = receiverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;

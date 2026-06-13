@@ -425,7 +425,9 @@ void App::renderMenuBar()
         ImGui::Separator();
         if (ImGui::MenuItem("Save Custom Component")) {
             showSaveCustomPopup = true;
-            saveCustomName[0] = '\0';
+            if (currentFilePath.empty()) {
+                saveCustomName[0] = '\0';
+            }
             saveCustomWidth = 100;
             saveCustomHeight = 100;
             saveInPorts.clear();
