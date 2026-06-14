@@ -105,14 +105,7 @@ void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
 {
     if (data.empty()) return;
     
-    // Clear everything
-    clearSelection();
-    comps.clear();
-    junctions.clear();
-    wires.clear();
-    if (sim) {
-        sim->stop();
-    }
+    clear();
     
     try {
         json j = json::parse(data);
@@ -229,11 +222,10 @@ void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
                 Endpoint dst = deserializeEndpoint(jw["dst"]);
                 int busWidth = jw.value("busWidth", 1);
                 
-                // Add waypoints if they exist, before completeWire is called.
-                // completeWire creates the wire object and puts it at the back of `wires`.
+                size_t prevSize = wires.size();
                 completeWire(src, dst, busWidth);
                 
-                if (!wires.empty()) {
+                if (wires.size() > prevSize) {
                     WireView& wv = wires.back();
                     if (jw.contains("waypoints")) {
                         for (const auto& jwp : jw["waypoints"]) {

@@ -421,7 +421,10 @@ void App::renderMenuBar()
     if (!ImGui::BeginMenuBar()) return;
 
     if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New"))  { /* TODO */ }
+        if (ImGui::MenuItem("New"))  {
+            canvas.clear();
+            currentFilePath.clear();
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Save Custom Component")) {
             showSaveCustomPopup = true;

@@ -40,6 +40,8 @@ public:
     // we need to register all internal components and nets instead!
     void registerInternals(Simulator* sim);
     void unregisterInternals(Simulator* sim);
+    
+    void setSimulator(Simulator* s) override;
 
 private:
     CustomComponentDef def;

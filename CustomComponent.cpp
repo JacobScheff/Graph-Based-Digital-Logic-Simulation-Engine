@@ -29,6 +29,14 @@ void CustomComponent::update()
     // No-op. The actual logic is performed by the internal components!
 }
 
+void CustomComponent::setSimulator(Simulator* s)
+{
+    if (s == nullptr && getSimulator() != nullptr) {
+        unregisterInternals(getSimulator());
+    }
+    Component::setSimulator(s);
+}
+
 void CustomComponent::registerInternals(Simulator* sim)
 {
     setSimulator(sim);
@@ -51,8 +59,14 @@ void CustomComponent::registerInternals(Simulator* sim)
     // In Simulator.hpp: Net* createNet(); We MUST tell Simulator to delete them.
     // We will keep them in a vector of Net* to delete later.
     for (auto& wv : tempCanvas.wires) {
-        if (wv.net) rawInternalNets.push_back(wv.net);
-        for (auto* n : wv.busNets) rawInternalNets.push_back(n);
+        if (wv.net && std::find(rawInternalNets.begin(), rawInternalNets.end(), wv.net) == rawInternalNets.end()) {
+            rawInternalNets.push_back(wv.net);
+        }
+        for (auto* n : wv.busNets) {
+            if (n && std::find(rawInternalNets.begin(), rawInternalNets.end(), n) == rawInternalNets.end()) {
+                rawInternalNets.push_back(n);
+            }
+        }
     }
 
     // Now map PORT_IN and PORT_OUT to our external pins
@@ -78,9 +92,10 @@ void CustomComponent::registerInternals(Simulator* sim)
 void CustomComponent::unregisterInternals(Simulator* sim)
 {
     for (auto& comp : internalComps) {
-        sim->unregisterComponent(comp.get());
         if (auto* c = dynamic_cast<Clock*>(comp.get())) {
             sim->unregisterClock(c);
+        } else {
+            sim->unregisterComponent(comp.get());
         }
     }
     for (Net* n : rawInternalNets) {

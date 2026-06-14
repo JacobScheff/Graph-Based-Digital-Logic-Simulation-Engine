@@ -1033,6 +1033,38 @@ void Canvas::clearSelection()
     selectedId = -1;
 }
 
+void Canvas::clear()
+{
+    clearSelection();
+
+    // Remove all wires first to clean up nets
+    while (!wires.empty()) {
+        removeWire(wires.back().id);
+    }
+
+    junctions.clear();
+
+    // Unregister and remove all components
+    while (!comps.empty()) {
+        int id = comps.back().id;
+        auto it = std::find_if(comps.begin(), comps.end(),
+                               [&](const ComponentView& cv){ return cv.id == id; });
+        if (it != comps.end()) {
+            if (sim) {
+                if (auto* clk = dynamic_cast<Clock*>(it->comp.get()))
+                    sim->unregisterClock(clk);
+                else
+                    sim->unregisterComponent(it->comp.get());
+            }
+            comps.erase(it);
+        }
+    }
+
+    if (sim) {
+        sim->stop();
+    }
+}
+
 // ─── Hit Testing ──────────────────────────────────────────────────────────────
 
 int Canvas::hitComp(ImVec2 wp) const

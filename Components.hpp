@@ -40,7 +40,7 @@ public:
     void setTimingWheel(TimingWheel* w) { wheel = w; }
     TimingWheel* getTimingWheel() const { return wheel; }
 
-    void setSimulator(Simulator* s) { simulator = s; }
+    virtual void setSimulator(Simulator* s) { simulator = s; }
     Simulator* getSimulator() const { return simulator; }
 
     int getBusWidth() const { return busWidth; }

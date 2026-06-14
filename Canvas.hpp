@@ -32,6 +32,7 @@ public:
     int  getSelectedWireCount() const;
     int  getSelectedJunctionCount() const;
     void clearSelection();
+    void clear();
 
     void deleteSelected();
     void settle() { if (sim) sim->settle(); }
