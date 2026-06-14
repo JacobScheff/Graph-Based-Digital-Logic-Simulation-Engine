@@ -386,11 +386,17 @@ ImVec2 Canvas::receiverEdgePos(const ComponentView& cv, int idx) const
 
 ImVec2 Canvas::busDriverPos(const ComponentView& cv) const
 {
+    if (!cv.driverLayout.empty()) {
+        return driverPos(cv, 0);
+    }
     return { cv.pos.x + cv.size.x + PIN_LEN, cv.pos.y + cv.size.y * 0.5f };
 }
 
 ImVec2 Canvas::busReceiverPos(const ComponentView& cv) const
 {
+    if (!cv.receiverLayout.empty()) {
+        return receiverPos(cv, 0);
+    }
     return { cv.pos.x - PIN_LEN, cv.pos.y + cv.size.y * 0.5f };
 }
 
@@ -439,6 +445,28 @@ int Canvas::componentBusWidth(const ComponentView& cv) const
     if (cv.typeName == "NUM_IN" || cv.typeName == "NUM_DISP")
         return 4;
     return 1;
+}
+
+bool Canvas::isCustomPortStart(const std::string& typeName, bool isInput, int pinIdx, int& outBusWidth) const
+{
+    auto it = customDefs.find(typeName);
+    if (it != customDefs.end()) {
+        const auto& ports = isInput ? it->second.inPorts : it->second.outPorts;
+        int currentIdx = 0;
+        for (const auto& p : ports) {
+            if (pinIdx == currentIdx) {
+                outBusWidth = p.busWidth;
+                return true;
+            }
+            if (pinIdx > currentIdx && pinIdx < currentIdx + p.busWidth) {
+                outBusWidth = -1; // Indicates it is strictly inside a bus port
+                return false;
+            }
+            currentIdx += p.busWidth;
+        }
+    }
+    outBusWidth = 1;
+    return true; // Not a custom component or not inside a bus port
 }
 
 std::unique_ptr<Component> Canvas::makeComponent(const std::string& type, int busWidth)
@@ -1092,9 +1120,18 @@ int Canvas::hitDriverPin(ImVec2 wp, int& outId, bool busSide) const
         if (!busSide && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
         if (cv.typeName == "PORT_OUT") continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
+            int customPortBw = 1;
+            if (!isCustomPortStart(cv.typeName, false, i, customPortBw)) continue;
+            
+            // If the port has busWidth > 1, it only hits if busSide is true
+            // Wait, does the canvas drawing distinguish bus side for custom components?
+            // Actually bus wires connect to bus pins. If customPortBw > 1, it's a bus pin!
+            if ((customPortBw > 1) != busSide) continue;
+
             ImVec2 p = driverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
-            if (dx*dx + dy*dy <= (PIN_RAD+4)*(PIN_RAD+4)) {
+            float rad = (customPortBw > 1) ? (PIN_RAD+6) : (PIN_RAD+4);
+            if (dx*dx + dy*dy <= rad*rad) {
                 outId = cv.id;
                 return i;
             }
@@ -1118,9 +1155,15 @@ int Canvas::hitReceiverPin(ImVec2 wp, int& outId, bool busSide) const
         if (!busSide && (cv.typeName == "BUS_SPLIT" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
         if (cv.typeName == "PORT_IN") continue;
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
+            int customPortBw = 1;
+            if (!isCustomPortStart(cv.typeName, true, i, customPortBw)) continue;
+            
+            if ((customPortBw > 1) != busSide) continue;
+
             ImVec2 p = receiverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
-            if (dx*dx + dy*dy <= (PIN_RAD+4)*(PIN_RAD+4)) {
+            float rad = (customPortBw > 1) ? (PIN_RAD+6) : (PIN_RAD+4);
+            if (dx*dx + dy*dy <= rad*rad) {
                 outId = cv.id;
                 return i;
             }
@@ -1244,9 +1287,13 @@ int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriv
     for (const auto& cv : comps) {
         if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
+            int customPortBw = 1;
+            if (!isCustomPortStart(cv.typeName, false, i, customPortBw)) continue;
+
             ImVec2 p = driverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
-            if (dx*dx + dy*dy <= (PIN_RAD+4)*(PIN_RAD+4)) {
+            float rad = (customPortBw > 1) ? (PIN_RAD+6) : (PIN_RAD+4);
+            if (dx*dx + dy*dy <= rad*rad) {
                 outCompId = cv.id;
                 outPinIdx = i;
                 outIsDriver = true;
@@ -1258,9 +1305,13 @@ int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriv
     for (const auto& cv : comps) {
         if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
+            int customPortBw = 1;
+            if (!isCustomPortStart(cv.typeName, true, i, customPortBw)) continue;
+
             ImVec2 p = receiverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
-            if (dx*dx + dy*dy <= (PIN_RAD+4)*(PIN_RAD+4)) {
+            float rad = (customPortBw > 1) ? (PIN_RAD+6) : (PIN_RAD+4);
+            if (dx*dx + dy*dy <= rad*rad) {
                 outCompId = cv.id;
                 outPinIdx = i;
                 outIsDriver = false;
@@ -1605,6 +1656,10 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     for (int i = 0; i < cv.comp->numReceivers(); ++i) {
         if (cv.typeName == "PORT_IN") break;
         if ((cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT") && i > 0 && i < bw) continue;
+        
+        int customPortBw = 1;
+        if (!isCustomPortStart(cv.typeName, true, i, customPortBw)) continue;
+        
         ImVec2 tip, edge;
         ImVec2 edgeW;
         if (isBusComponent(cv.typeName) && i == 0 && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG")) {
@@ -1618,8 +1673,9 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         }
         State st  = cv.comp->getReceiver(i)->getState();
         ImU32 col = stateColor(st);
-        float lw  = (isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG") && i == 0)
-                    ? 4.f * zoom : 2.2f * zoom;
+        
+        bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG") && i == 0) || customPortBw > 1);
+        float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
         dl->AddLine(edge, tip, col, lw);
 
         // Pin circle: filled if connected, hollow if not
@@ -1654,6 +1710,10 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     for (int i = 0; i < cv.comp->numDrivers(); ++i) {
         if (cv.typeName == "PORT_OUT") break;
         if ((cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN") && i > 0) continue;
+        
+        int customPortBw = 1;
+        if (!isCustomPortStart(cv.typeName, false, i, customPortBw)) continue;
+        
         ImVec2 tip, edge;
         ImVec2 edgeW;
         if (isBusComponent(cv.typeName) && i == 0 && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG")) {
@@ -1667,8 +1727,9 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         }
         State st  = cv.comp->getDriver(i)->getState();
         ImU32 col = stateColor(st);
-        float lw  = (isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG") && i == 0)
-                    ? 4.f * zoom : 2.2f * zoom;
+        
+        bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG") && i == 0) || customPortBw > 1);
+        float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
         dl->AddLine(edge, tip, col, lw);
 
         // Pin circle: filled if connected, hollow if not

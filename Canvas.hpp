@@ -242,4 +242,7 @@ private:
 
     bool isBusComponent(const std::string& type) const;
     int  componentBusWidth(const ComponentView& cv) const;
+    
+    // Helpers for custom component bus ports
+    bool isCustomPortStart(const std::string& typeName, bool isInput, int pinIdx, int& outBusWidth) const;
 };
