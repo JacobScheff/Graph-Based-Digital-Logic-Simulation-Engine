@@ -224,6 +224,8 @@ private:
 
     ImVec2 getComponentSize(const std::string& type, int busWidth) const;
 
+    int getAvailablePortWidth(const ComponentView* cv, int pinIdx, bool isInput) const;
+
     void completeWire(const Endpoint& src, const Endpoint& dst, int busWidth = 1);
     void completeWireSingle(Driver* drv, Receiver* rcv, const Endpoint& src, const Endpoint& dst);
     void removeWiresOf(int compId);

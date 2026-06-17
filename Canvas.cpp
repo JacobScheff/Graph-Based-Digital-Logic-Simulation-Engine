@@ -603,6 +603,40 @@ void Canvas::beginPlacement(const std::string& typeName, int busWidth)
 
 // ─── Wire Completion ──────────────────────────────────────────────────────────
 
+int Canvas::getAvailablePortWidth(const ComponentView* cv, int pinIdx, bool isInput) const
+{
+    if (!cv) return 1;
+
+    auto it = customDefs.find(cv->typeName);
+    if (it != customDefs.end()) {
+        int customBw = 1;
+        if (isCustomPortStart(cv->typeName, isInput, pinIdx, customBw)) {
+            return customBw;
+        }
+        return 1;
+    }
+
+    if (cv->typeName == "BUS_SPLIT") {
+        if (isInput && pinIdx == 0) return cv->busWidth;
+        return 1;
+    }
+    if (cv->typeName == "BUS_MERGE") {
+        if (!isInput && pinIdx == 0) return cv->busWidth;
+        return 1;
+    }
+    if (cv->typeName == "REG") {
+        if (isInput && pinIdx == 0) return cv->busWidth;
+        if (!isInput && pinIdx == 0) return cv->busWidth;
+        return 1;
+    }
+    if (cv->typeName == "PORT_IN" || cv->typeName == "PORT_OUT") {
+        if (pinIdx == 0) return cv->busWidth;
+        return 1;
+    }
+
+    return 1;
+}
+
 void Canvas::completeWireSingle(Driver* drv, Receiver* rcv,
                                 const Endpoint& srcIn, const Endpoint& dstIn)
 {
@@ -727,15 +761,20 @@ void Canvas::completeWire(const Endpoint& srcIn, const Endpoint& dstIn, int busW
     ComponentView* dstCv = dst.kind == EndpointKind::Component ? findComp(dst.compId) : nullptr;
     if (!srcCv || !dstCv) return;
 
+    int srcPortWidth = getAvailablePortWidth(srcCv, src.pinIdx, false);
+    int dstPortWidth = getAvailablePortWidth(dstCv, dst.pinIdx, true);
+    
+    int actualBw = std::min({busWidth, srcPortWidth, dstPortWidth});
+
     WireView wv;
     wv.id       = nextWireId++;
-    wv.busWidth = busWidth;
+    wv.busWidth = actualBw;
     wv.src      = src;
     wv.dst      = dst;
 
-    for (int i = 0; i < busWidth; ++i) {
-        Driver*   drv = srcCv->comp->getDriver(i);
-        Receiver* rcv = dstCv->comp->getReceiver(i);
+    for (int i = 0; i < actualBw; ++i) {
+        Driver*   drv = srcCv->comp->getDriver(src.pinIdx + i);
+        Receiver* rcv = dstCv->comp->getReceiver(dst.pinIdx + i);
         if (!drv || !rcv || rcv->isConnected()) continue;
 
         Net* net = drv->isConnected() ? drv->getNet() : sim->connectDriver(drv);
@@ -781,7 +820,7 @@ void Canvas::removeWire(int wireId)
                         sim->disconnectDriver(d);
                 } else {
                     for (int i = 0; i < wv.busWidth; ++i)
-                        sim->disconnectDriver(cv->comp->getDriver(i));
+                        sim->disconnectDriver(cv->comp->getDriver(wv.src.pinIdx + i));
                 }
             }
         }
@@ -791,7 +830,7 @@ void Canvas::removeWire(int wireId)
                     sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
                 } else {
                     for (int i = 0; i < wv.busWidth; ++i)
-                        sim->disconnectReceiver(cv->comp->getReceiver(i));
+                        sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx + i));
                 }
             }
         }
@@ -934,7 +973,7 @@ void Canvas::deleteSelected()
                         if (wv.busWidth <= 1) {
                             if (auto* d = cv->comp->getDriver(wv.src.pinIdx)) sim->disconnectDriver(d);
                         } else {
-                            for (int i = 0; i < wv.busWidth; ++i) sim->disconnectDriver(cv->comp->getDriver(i));
+                            for (int i = 0; i < wv.busWidth; ++i) sim->disconnectDriver(cv->comp->getDriver(wv.src.pinIdx + i));
                         }
                     }
                 }
@@ -943,7 +982,7 @@ void Canvas::deleteSelected()
                         if (wv.busWidth <= 1) {
                             sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
                         } else {
-                            for (int i = 0; i < wv.busWidth; ++i) sim->disconnectReceiver(cv->comp->getReceiver(i));
+                            for (int i = 0; i < wv.busWidth; ++i) sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx + i));
                         }
                     }
                 }
@@ -1676,6 +1715,21 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         
         bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG") && i == 0) || customPortBw > 1);
         float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
+
+        if (isBusDraw) {
+            bool anyTrue = false;
+            bool anyFalse = false;
+            int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
+            for (int b = 0; b < bw; ++b) {
+                State bs = cv.comp->getReceiver(i + b)->getState();
+                if (bs == State::True) anyTrue = true;
+                if (bs == State::False) anyFalse = true;
+            }
+            if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
+            else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
+            else if (anyTrue && anyFalse) col = IM_COL32(200, 100, 200, 255);
+        }
+
         dl->AddLine(edge, tip, col, lw);
 
         // Pin circle: filled if connected, hollow if not
@@ -1730,6 +1784,21 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         
         bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG") && i == 0) || customPortBw > 1);
         float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
+
+        if (isBusDraw) {
+            bool anyTrue = false;
+            bool anyFalse = false;
+            int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
+            for (int b = 0; b < bw; ++b) {
+                State bs = cv.comp->getDriver(i + b)->getState();
+                if (bs == State::True) anyTrue = true;
+                if (bs == State::False) anyFalse = true;
+            }
+            if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
+            else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
+            else if (anyTrue && anyFalse) col = IM_COL32(200, 100, 200, 255);
+        }
+
         dl->AddLine(edge, tip, col, lw);
 
         // Pin circle: filled if connected, hollow if not
@@ -2696,7 +2765,7 @@ void Canvas::render()
                                 if (wv.busWidth <= 1) {
                                     if (auto* d = cv->comp->getDriver(wv.src.pinIdx)) sim->disconnectDriver(d);
                                 } else {
-                                    for (int i = 0; i < wv.busWidth; ++i) sim->disconnectDriver(cv->comp->getDriver(i));
+                                    for (int i = 0; i < wv.busWidth; ++i) sim->disconnectDriver(cv->comp->getDriver(wv.src.pinIdx + i));
                                 }
                             }
                         }
@@ -2705,7 +2774,7 @@ void Canvas::render()
                                 if (wv.busWidth <= 1) {
                                     sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
                                 } else {
-                                    for (int i = 0; i < wv.busWidth; ++i) sim->disconnectReceiver(cv->comp->getReceiver(i));
+                                    for (int i = 0; i < wv.busWidth; ++i) sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx + i));
                                 }
                             }
                         }
