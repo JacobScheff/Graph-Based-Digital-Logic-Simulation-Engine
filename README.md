@@ -38,16 +38,11 @@ This project uses CMake to handle dependencies via `FetchContent` and generate b
    cd "Graph-Based Digital Logic Simulation Engine"
    ```
 
-2. Create a build directory and configure the project:
+2. Create a build directory and build the executable:
    ```bash
    mkdir build
    cd build
-   cmake ..
-   ```
-
-3. Build the executable:
-   ```bash
-   cmake --build .
+   make
    ```
 
 ## Usage
