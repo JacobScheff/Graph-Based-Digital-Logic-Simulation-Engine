@@ -106,6 +106,10 @@ void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
     if (data.empty()) return;
     
     clear();
+
+    nextId = 1;
+    nextWireId = 1;
+    nextJunctionId = 1;
     
     try {
         json j = json::parse(data);
@@ -199,10 +203,6 @@ void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
             }
         }
         
-        // Update ID counters so future placements don't collide
-        nextId = maxCompId + 1;
-        nextJunctionId = maxJunctionId + 1;
-        
         // Load wires
         if (j.contains("wires")) {
             for (const auto& jw : j["wires"]) {
@@ -227,6 +227,7 @@ void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
                 
                 if (wires.size() > prevSize) {
                     WireView& wv = wires.back();
+                    if (wv.id > maxWireId) maxWireId = wv.id;
                     if (jw.contains("waypoints")) {
                         for (const auto& jwp : jw["waypoints"]) {
                             wv.waypoints.push_back({jwp.value("x", 0.f), jwp.value("y", 0.f)});
@@ -235,6 +236,11 @@ void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
                 }
             }
         }
+
+        // Update ID counters so future placements don't collide
+        nextId = maxCompId + 1;
+        nextJunctionId = maxJunctionId + 1;
+        nextWireId = maxWireId + 1;
     } catch (const std::exception& e) {
         std::cerr << "Deserialization error: " << e.what() << "\n";
     }
