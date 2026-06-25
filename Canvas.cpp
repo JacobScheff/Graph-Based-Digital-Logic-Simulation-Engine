@@ -1722,8 +1722,8 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
             for (int b = 0; b < bw; ++b) {
                 State bs = cv.comp->getReceiver(i + b)->getState();
-                if (bs == State::True) anyTrue = true;
-                if (bs == State::False) anyFalse = true;
+                if (bs == State::HIGH) anyTrue = true;
+                if (bs == State::LOW) anyFalse = true;
             }
             if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
             else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
@@ -1791,8 +1791,8 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
             for (int b = 0; b < bw; ++b) {
                 State bs = cv.comp->getDriver(i + b)->getState();
-                if (bs == State::True) anyTrue = true;
-                if (bs == State::False) anyFalse = true;
+                if (bs == State::HIGH) anyTrue = true;
+                if (bs == State::LOW) anyFalse = true;
             }
             if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
             else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
