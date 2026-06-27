@@ -1713,7 +1713,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         State st  = cv.comp->getReceiver(i)->getState();
         ImU32 col = stateColor(st);
         
-        bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG") && i == 0) || customPortBw > 1);
+        bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT") && i == 0) || customPortBw > 1);
         float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
 
         if (isBusDraw) {
@@ -1722,8 +1722,13 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
             for (int b = 0; b < bw; ++b) {
                 State bs = cv.comp->getReceiver(i + b)->getState();
-                if (bs == State::True) anyTrue = true;
-                if (bs == State::False) anyFalse = true;
+                if (sim) {
+                    if (readAsTrue(bs, *sim))  anyTrue = true;
+                    if (readAsFalse(bs, *sim)) anyFalse = true;
+                } else {
+                    if (bs == State::HIGH) anyTrue = true;
+                    if (bs == State::LOW)  anyFalse = true;
+                }
             }
             if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
             else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
@@ -1782,7 +1787,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         State st  = cv.comp->getDriver(i)->getState();
         ImU32 col = stateColor(st);
         
-        bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG") && i == 0) || customPortBw > 1);
+        bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN") && i == 0) || customPortBw > 1);
         float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
 
         if (isBusDraw) {
@@ -1791,8 +1796,13 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
             for (int b = 0; b < bw; ++b) {
                 State bs = cv.comp->getDriver(i + b)->getState();
-                if (bs == State::True) anyTrue = true;
-                if (bs == State::False) anyFalse = true;
+                if (sim) {
+                    if (readAsTrue(bs, *sim))  anyTrue = true;
+                    if (readAsFalse(bs, *sim)) anyFalse = true;
+                } else {
+                    if (bs == State::HIGH) anyTrue = true;
+                    if (bs == State::LOW)  anyFalse = true;
+                }
             }
             if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
             else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
