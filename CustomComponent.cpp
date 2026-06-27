@@ -37,12 +37,16 @@ void CustomComponent::setSimulator(Simulator* s)
     Component::setSimulator(s);
 }
 
-void CustomComponent::registerInternals(Simulator* sim)
+void CustomComponent::registerInternals(Simulator* sim,
+                                       const std::unordered_map<std::string, CustomComponentDef>& customDefs)
 {
     setSimulator(sim);
 
-    // Create a temporary canvas attached to this simulator
+    // Create a temporary canvas attached to this simulator.
+    // Nested custom components (e.g. 1-Bit Switch inside 4-Bit Switch) need the
+    // parent's customDefs so makeComponent can resolve them during deserialize.
     Canvas tempCanvas(sim);
+    tempCanvas.customDefs = customDefs;
     tempCanvas.deserialize(def.canvasJson, true);
 
     // Steal all the instantiated components

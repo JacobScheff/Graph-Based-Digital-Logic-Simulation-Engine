@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 
 struct CustomPortDef {
     int internalCompId;
@@ -38,7 +39,8 @@ public:
 
     // When the canvas adds this custom component to the simulator, 
     // we need to register all internal components and nets instead!
-    void registerInternals(Simulator* sim);
+    void registerInternals(Simulator* sim,
+                           const std::unordered_map<std::string, CustomComponentDef>& customDefs);
     void unregisterInternals(Simulator* sim);
     
     void setSimulator(Simulator* s) override;

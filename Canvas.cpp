@@ -495,7 +495,7 @@ std::unique_ptr<Component> Canvas::makeComponent(const std::string& type, int bu
     auto it = customDefs.find(type);
     if (it != customDefs.end()) {
         auto comp = std::make_unique<CustomComponent>(it->second);
-        if (sim) comp->registerInternals(sim);
+        if (sim) comp->registerInternals(sim, customDefs);
         return comp;
     }
     
