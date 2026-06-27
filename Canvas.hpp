@@ -48,6 +48,8 @@ public:
 
     const auto& getComps() const { return comps; }
 
+    static constexpr int MAX_BUS_WIDTH = 64;
+
 private:
     friend class CustomComponent;
     enum class EndpointKind { Component, Rail, Junction };
@@ -249,7 +251,11 @@ private:
     const JunctionView* findJunction(int id) const;
 
     bool isBusComponent(const std::string& type) const;
+    bool hasConsolidatedBusDriver(const ComponentView& cv) const;
+    bool hasConsolidatedBusReceiver(const ComponentView& cv) const;
     int  componentBusWidth(const ComponentView& cv) const;
+
+    void drawBusSlash(ImDrawList* dl, ImVec2 a, ImVec2 b, int width, ImU32 col) const;
     
     // Helpers for custom component bus ports
     bool isCustomPortStart(const std::string& typeName, bool isInput, int pinIdx, int& outBusWidth) const;

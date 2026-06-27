@@ -134,63 +134,73 @@ public:
     void update() override {}
 };
 
-// ─── 4-bit Numeric Input ──────────────────────────────────────────────────────
+// ─── N-bit Numeric Input ──────────────────────────────────────────────────────
 class NumericInput : public Component
 {
 public:
-    NumericInput() : Component("NUM_IN", 0, 4)
+    explicit NumericInput(int width = 4)
+        : Component("NUM_IN", 0, width)
     {
-        setBusWidth(4);
+        setBusWidth(width);
         setValue(0);
+    }
+
+    uint64_t valueMask() const
+    {
+        int w = getBusWidth();
+        return w >= 64 ? ~0ULL : ((1ULL << w) - 1);
     }
 
     void setValue(int v)
     {
-        value = v & 0xF;
+        value = static_cast<uint64_t>(v) & valueMask();
+        int w = getBusWidth();
         if (!getSimulator()) {
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < w; ++i)
                 drivers[i]->setState(((value >> i) & 1) ? State::HIGH : State::LOW);
             return;
         }
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < w; ++i) {
             bool bit = (value >> i) & 1;
             drivers[i]->setState(bit ? driveTrue(*this) : driveFalse(*this));
         }
     }
 
-    int  getValue() const { return value; }
+    uint64_t getValue() const { return value; }
 
-    void onRegistered() override { setValue(value); }
+    void onRegistered() override { setValue(static_cast<int>(value)); }
 
     void update() override {}
 
 private:
-    int value = 0;
+    uint64_t value = 0;
 };
 
-// ─── 4-bit Numeric Display ────────────────────────────────────────────────────
+// ─── N-bit Numeric Display ────────────────────────────────────────────────────
 class NumericDisplay : public Component
 {
 public:
-    NumericDisplay() : Component("NUM_DISP", 4, 0)
+    explicit NumericDisplay(int width = 4)
+        : Component("NUM_DISP", width, 0)
     {
-        setBusWidth(4);
+        setBusWidth(width);
     }
 
-    int getValue() const
+    uint64_t getValue() const
     {
         if (!getSimulator()) return 0;
-        int v = 0;
-        for (int i = 0; i < 4; ++i)
+        uint64_t v = 0;
+        int w = getBusWidth();
+        for (int i = 0; i < w; ++i)
             if (readAsTrue(receivers[i]->getState(), *this))
-                v |= (1 << i);
+                v |= (1ULL << i);
         return v;
     }
 
     bool hasAmbiguity() const
     {
         if (!getSimulator()) return true;
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < getBusWidth(); ++i) {
             State s = receivers[i]->getState();
             if (!readAsTrue(s, *this) && !readAsFalse(s, *this))
                 return true;
@@ -244,10 +254,12 @@ public:
             r = r ? 255 : 0;
             g = g ? 255 : 0;
             b = b ? 255 : 0;
-        } else if (w == 4) {
-            r = (r & 0xF) * 17;
-            g = (g & 0xF) * 17;
-            b = (b & 0xF) * 17;
+        } else if (w <= 4) {
+            int mask = (1 << w) - 1;
+            int scale = 255 / mask;
+            r = (r & mask) * scale;
+            g = (g & mask) * scale;
+            b = (b & mask) * scale;
         } else {
             r &= 0xFF;
             g &= 0xFF;
