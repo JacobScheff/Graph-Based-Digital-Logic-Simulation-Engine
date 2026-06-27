@@ -90,7 +90,7 @@ class Clock : public Component
 {
 public:
     explicit Clock(int halfPeriodTicks = 10)
-        : Component("CLK", 2, 1), halfPeriod(halfPeriodTicks)
+        : Component("CLK", 0, 1), halfPeriod(halfPeriodTicks)
     {
         drivers[0]->setState(State::LOW);
     }

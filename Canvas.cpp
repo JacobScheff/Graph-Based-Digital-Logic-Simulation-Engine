@@ -100,36 +100,54 @@ void Canvas::initPinLayouts(ComponentView& cv)
         const auto& d = it->second;
         cv.receiverLayout.clear();
         for (const auto& p : d.inPorts) {
-            int totalOnSide = 0;
-            int startOnSide = 0;
-            for (const auto& ip : d.inPorts) {
-                if (ip.side == p.side) {
-                    if (&ip < &p) startOnSide += ip.busWidth;
-                    totalOnSide += ip.busWidth;
+            if (p.t >= 0.f) {
+                for (int b = 0; b < p.busWidth; ++b) {
+                    PinLayout pl;
+                    pl.side = p.side;
+                    pl.t = p.t;
+                    cv.receiverLayout.push_back(pl);
                 }
-            }
-            for (int b = 0; b < p.busWidth; ++b) {
-                PinLayout pl;
-                pl.side = p.side;
-                pl.t = float(totalOnSide - (startOnSide + b)) / float(totalOnSide + 1);
-                cv.receiverLayout.push_back(pl);
+            } else {
+                int totalOnSide = 0;
+                int startOnSide = 0;
+                for (const auto& ip : d.inPorts) {
+                    if (ip.side == p.side) {
+                        if (&ip < &p) startOnSide += ip.busWidth;
+                        totalOnSide += ip.busWidth;
+                    }
+                }
+                for (int b = 0; b < p.busWidth; ++b) {
+                    PinLayout pl;
+                    pl.side = p.side;
+                    pl.t = float(totalOnSide - (startOnSide + b)) / float(totalOnSide + 1);
+                    cv.receiverLayout.push_back(pl);
+                }
             }
         }
         cv.driverLayout.clear();
         for (const auto& p : d.outPorts) {
-            int totalOnSide = 0;
-            int startOnSide = 0;
-            for (const auto& op : d.outPorts) {
-                if (op.side == p.side) {
-                    if (&op < &p) startOnSide += op.busWidth;
-                    totalOnSide += op.busWidth;
+            if (p.t >= 0.f) {
+                for (int b = 0; b < p.busWidth; ++b) {
+                    PinLayout pl;
+                    pl.side = p.side;
+                    pl.t = p.t;
+                    cv.driverLayout.push_back(pl);
                 }
-            }
-            for (int b = 0; b < p.busWidth; ++b) {
-                PinLayout pl;
-                pl.side = p.side;
-                pl.t = float(totalOnSide - (startOnSide + b)) / float(totalOnSide + 1);
-                cv.driverLayout.push_back(pl);
+            } else {
+                int totalOnSide = 0;
+                int startOnSide = 0;
+                for (const auto& op : d.outPorts) {
+                    if (op.side == p.side) {
+                        if (&op < &p) startOnSide += op.busWidth;
+                        totalOnSide += op.busWidth;
+                    }
+                }
+                for (int b = 0; b < p.busWidth; ++b) {
+                    PinLayout pl;
+                    pl.side = p.side;
+                    pl.t = float(totalOnSide - (startOnSide + b)) / float(totalOnSide + 1);
+                    cv.driverLayout.push_back(pl);
+                }
             }
         }
         return;
@@ -138,31 +156,11 @@ void Canvas::initPinLayouts(ComponentView& cv)
     int nRcv = cv.comp ? cv.comp->numReceivers() : 0;
     int nDrv = cv.comp ? cv.comp->numDrivers()   : 0;
 
-    bool hasVG = (cv.typeName == "NOT" || cv.typeName == "BUF" ||
-                  cv.typeName == "AND" || cv.typeName == "NAND" ||
-                  cv.typeName == "OR"  || cv.typeName == "NOR"  ||
-                  cv.typeName == "XOR" || cv.typeName == "XNOR" ||
-                  cv.typeName == "CLK");
-
     // Receivers
     cv.receiverLayout.resize(nRcv);
-    if (hasVG && nRcv >= 2) {
-        int nRegular = nRcv - 2;
-        for (int i = 0; i < nRegular; ++i) {
-            cv.receiverLayout[i].side = 0; // Left
-            cv.receiverLayout[i].t = float(nRegular - i) / float(nRegular + 1);
-        }
-        // VDD on top center
-        cv.receiverLayout[nRcv - 2].side = 1;
-        cv.receiverLayout[nRcv - 2].t = 0.5f;
-        // GND on bottom center
-        cv.receiverLayout[nRcv - 1].side = 3;
-        cv.receiverLayout[nRcv - 1].t = 0.5f;
-    } else {
-        for (int i = 0; i < nRcv; ++i) {
-            cv.receiverLayout[i].side = 0; // Left
-            cv.receiverLayout[i].t = float(nRcv - i) / float(nRcv + 1);
-        }
+    for (int i = 0; i < nRcv; ++i) {
+        cv.receiverLayout[i].side = 0; // Left
+        cv.receiverLayout[i].t = float(nRcv - i) / float(nRcv + 1);
     }
 
     // Drivers
@@ -175,38 +173,33 @@ void Canvas::initPinLayouts(ComponentView& cv)
 
 Canvas::PinLayout Canvas::projectOntoPerimeter(const ComponentView& cv, ImVec2 wp) const
 {
-    // Project world point onto the nearest edge of the component
     float cx = cv.pos.x + cv.size.x * 0.5f;
     float cy = cv.pos.y + cv.size.y * 0.5f;
     float dx = wp.x - cx;
     float dy = wp.y - cy;
-
-    // Determine which edge is closest
     float hw = cv.size.x * 0.5f;
     float hh = cv.size.y * 0.5f;
-
-    // Scale to unit box
     float sx = (hw > 0.f) ? dx / hw : 0.f;
     float sy = (hh > 0.f) ? dy / hh : 0.f;
 
     PinLayout pl;
-    float margin = 0.08f; // keep pins away from corners
+    float margin = 0.08f;
     auto clampT = [margin](float v) { return std::clamp(v, margin, 1.f - margin); };
 
     if (std::fabs(sx) > std::fabs(sy)) {
         if (sx < 0) {
-            pl.side = 0; // Left
+            pl.side = 0;
             pl.t = clampT((wp.y - cv.pos.y) / cv.size.y);
         } else {
-            pl.side = 2; // Right
+            pl.side = 2;
             pl.t = clampT((wp.y - cv.pos.y) / cv.size.y);
         }
     } else {
         if (sy < 0) {
-            pl.side = 1; // Top
+            pl.side = 1;
             pl.t = clampT((wp.x - cv.pos.x) / cv.size.x);
         } else {
-            pl.side = 3; // Bottom
+            pl.side = 3;
             pl.t = clampT((wp.x - cv.pos.x) / cv.size.x);
         }
     }
@@ -239,14 +232,6 @@ ImVec2 Canvas::getCustomPinPos(const ComponentView& cv, int side, int totalOnSid
     return cv.pos;
 }
 
-static bool hasVddGndInputs(const std::string& typeName)
-{
-    return typeName == "NOT" || typeName == "BUF" ||
-           typeName == "AND" || typeName == "NAND" ||
-           typeName == "OR"  || typeName == "NOR"  ||
-           typeName == "XOR" || typeName == "XNOR" ||
-           typeName == "CLK";
-}
 
 ImVec2 Canvas::driverPos(const ComponentView& cv, int idx) const
 {
@@ -337,15 +322,6 @@ ImVec2 Canvas::receiverPos(const ComponentView& cv, int idx) const
     }
     int n = cv.comp->numReceivers();
     if (n == 0) return cv.pos;
-
-    if (hasVddGndInputs(cv.typeName)) {
-        if (idx == n - 2) return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y - PIN_LEN };
-        if (idx == n - 1) return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y + cv.size.y + PIN_LEN };
-        int numRegular = n - 2;
-        if (numRegular == 0) return cv.pos;
-        float step = cv.size.y / float(numRegular + 1);
-        return { cv.pos.x - PIN_LEN, cv.pos.y + step * float(idx + 1) };
-    }
     float step = cv.size.y / float(n + 1);
     return { cv.pos.x - PIN_LEN, cv.pos.y + step * float(idx + 1) };
 }
@@ -376,11 +352,6 @@ ImVec2 Canvas::receiverEdgePos(const ComponentView& cv, int idx) const
     }
     int n = cv.comp->numReceivers();
     if (n == 0) return cv.pos;
-
-    if (hasVddGndInputs(cv.typeName)) {
-        if (idx == n - 2) return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y };
-        if (idx == n - 1) return { cv.pos.x + cv.size.x * 0.5f, cv.pos.y + cv.size.y };
-    }
     return { cv.pos.x, receiverPos(cv, idx).y };
 }
 
@@ -508,16 +479,16 @@ ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth) const
     int numDrivers = 0;
     
     if (type == "NOT" || type == "BUF") {
-        numReceivers = 3;
+        numReceivers = 1;
         numDrivers = 1;
     } else if (type == "AND" || type == "NAND" || type == "OR" || type == "NOR" || type == "XOR" || type == "XNOR") {
-        numReceivers = 4;
+        numReceivers = 2;
         numDrivers = 1;
     } else if (type == "SW" || type == "BTN") {
         numReceivers = 0;
         numDrivers = 1;
     } else if (type == "CLK") {
-        numReceivers = 2;
+        numReceivers = 0;
         numDrivers = 1;
     } else if (type == "LED") {
         numReceivers = 1;
@@ -1212,25 +1183,8 @@ int Canvas::hitReceiverPin(ImVec2 wp, int& outId, bool busSide) const
     return -1;
 }
 
-bool Canvas::hitRailTap(ImVec2 wp, ImVec2 origin, ImVec2 size, bool& outVdd, float& outWorldX) const
+bool Canvas::hitRailTap(ImVec2, ImVec2, ImVec2, bool&, float&) const
 {
-    float vddY = origin.y + RAIL_BAND * 0.5f;
-    float gndY = origin.y + size.y - RAIL_BAND * 0.5f;
-    ImVec2 ws  = w2s(wp, origin);
-
-    auto check = [&](float sy, bool vdd) -> bool {
-        float dy = ws.y - sy;
-        if (std::fabs(dy) > (RAIL_BAND * 0.5f + 8.f)) return false;
-        float snappedX = std::round(wp.x / SNAP) * SNAP;
-        float dx = std::fabs(wp.x - snappedX);
-        if (dx > SNAP * 0.6f) return false;
-        outVdd = vdd;
-        outWorldX = snappedX;
-        return true;
-    };
-
-    if (check(vddY, true))  return true;
-    if (check(gndY, false)) return true;
     return false;
 }
 
@@ -1445,13 +1399,8 @@ void Canvas::drawGrid(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
     ImVec2 wMin = s2w(origin, origin);
     ImVec2 wMax = s2w({origin.x+size.x, origin.y+size.y}, origin);
 
-    float topY = origin.y + RAIL_BAND;
-    float botY = origin.y + size.y - RAIL_BAND;
-
-    // Primary grid
     ImU32 col = IM_COL32(40, 40, 52, 100);
     float gridStep = GRID;
-    // Adaptive: if zoomed in a lot, also draw a coarser 5x grid
     bool drawCoarse = (zoom > 0.8f);
     ImU32 coarseCol = IM_COL32(50, 50, 65, 140);
 
@@ -1462,54 +1411,21 @@ void Canvas::drawGrid(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
     for (float wx = startX; wx <= wMax.x; wx += gridStep) {
         for (float wy = startY; wy <= wMax.y; wy += gridStep) {
             ImVec2 p = w2s({wx, wy}, origin);
-            if (p.y >= topY && p.y <= botY) {
-                bool isCoarse = (std::fabs(std::fmod(wx, GRID * 5.f)) < 0.1f &&
-                                 std::fabs(std::fmod(wy, GRID * 5.f)) < 0.1f);
-                if (drawCoarse && isCoarse) {
-                    dl->AddCircleFilled(p, dotR * 1.8f, coarseCol);
-                } else {
-                    dl->AddCircleFilled(p, dotR, col);
-                }
+            bool isCoarse = (std::fabs(std::fmod(wx, GRID * 5.f)) < 0.1f &&
+                             std::fabs(std::fmod(wy, GRID * 5.f)) < 0.1f);
+            if (drawCoarse && isCoarse) {
+                dl->AddCircleFilled(p, dotR * 1.8f, coarseCol);
+            } else {
+                dl->AddCircleFilled(p, dotR, col);
             }
         }
     }
 }
 
-// ─── Drawing: Rails ───────────────────────────────────────────────────────────
+// ─── Drawing: Rails (removed — power is implicit) ─────────────────────────────
 
-void Canvas::drawRails(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
+void Canvas::drawRails(ImDrawList*, ImVec2, ImVec2) const
 {
-    float vddY = origin.y + RAIL_BAND * 0.5f;
-    float gndY = origin.y + size.y - RAIL_BAND * 0.5f;
-
-    dl->AddRectFilled(origin, {origin.x + size.x, origin.y + RAIL_BAND},
-                      IM_COL32(18, 30, 20, 255));
-    dl->AddRectFilled({origin.x, origin.y + size.y - RAIL_BAND},
-                      {origin.x + size.x, origin.y + size.y},
-                      IM_COL32(14, 20, 34, 255));
-
-    State vddSt = sim->getVddNet()->getState();
-    State gndSt = sim->getGndNet()->getState();
-    ImU32 vddCol = stateColor(vddSt);
-    ImU32 gndCol = stateColor(gndSt);
-
-    dl->AddLine({origin.x, vddY}, {origin.x + size.x, vddY}, vddCol, 3.f);
-    dl->AddLine({origin.x, gndY}, {origin.x + size.x, gndY}, gndCol, 3.f);
-
-    dl->AddText({origin.x + 4.f, vddY - 14.f}, vddCol, "VDD +");
-    dl->AddText({origin.x + 4.f, gndY + 2.f},  gndCol, "GND -");
-
-    ImVec2 wMin = s2w(origin, origin);
-    ImVec2 wMax = s2w({origin.x + size.x, origin.y + size.y}, origin);
-    float startX = std::floor(wMin.x / SNAP) * SNAP;
-
-    for (float wx = startX; wx <= wMax.x; wx += SNAP) {
-        ImVec2 tapS = w2s({wx, 0.f}, origin);
-        tapS.y = vddY;
-        dl->AddCircleFilled(tapS, 4.f, vddCol);
-        tapS.y = gndY;
-        dl->AddCircleFilled(tapS, 4.f, gndCol);
-    }
 }
 
 // ─── Drawing: Pin Labels ──────────────────────────────────────────────────────
@@ -1530,18 +1446,10 @@ const char* Canvas::pinLabel(const std::string& type, bool isInput, int idx, int
         
         if (type == "NOT" || type == "BUF") {
             if (idx == 0) return "A";
-            if (idx == 1) return "V";
-            if (idx == 2) return "G";
         }
         if (type == "AND" || type == "NAND" || type == "OR" || type == "NOR" || type == "XOR" || type == "XNOR") {
             if (idx == 0) return "A";
             if (idx == 1) return "B";
-            if (idx == 2) return "V";
-            if (idx == 3) return "G";
-        }
-        if (type == "SW" || type == "BTN" || type == "CLK") {
-            if (idx == 0) return "V";
-            if (idx == 1) return "G";
         }
         if (type == "LED") {
             if (idx == 0) return "A";
@@ -2024,7 +1932,7 @@ void Canvas::drawMinimap(ImDrawList* dl, ImVec2 origin, ImVec2 canvasSize) const
     if (mmH > 100.f) { mmH = 100.f; mmW = mmH * (contentW / contentH); }
 
     float mmX = origin.x + canvasSize.x - mmW - 10.f;
-    float mmY = origin.y + canvasSize.y - mmH - RAIL_BAND - 10.f;
+    float mmY = origin.y + canvasSize.y - mmH - 10.f;
 
     // Background
     dl->AddRectFilled({mmX, mmY}, {mmX + mmW, mmY + mmH}, IM_COL32(10, 10, 14, 200), 4.f);
@@ -2307,42 +2215,31 @@ void Canvas::render()
                     currentWireWaypoints.clear();
                     mode = Mode::Idle;
                 } else {
-                    bool railVdd; float railX;
-                    if (hitRailTap(wp, origin, size, railVdd, railX)) {
-                        dst.kind = EndpointKind::Rail;
-                        dst.railIsVdd = railVdd;
-                        dst.railX = railX;
+                    int jId = hitJunction(wp);
+                    if (jId >= 0) {
+                        dst.kind = EndpointKind::Junction;
+                        dst.junctionId = jId;
                         completeWire(wireSrc, dst, 1);
                         if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
                         currentWireWaypoints.clear();
                         mode = Mode::Idle;
                     } else {
-                        int jId = hitJunction(wp);
-                        if (jId >= 0) {
-                            dst.kind = EndpointKind::Junction;
-                            dst.junctionId = jId;
-                            completeWire(wireSrc, dst, 1);
-                            if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
-                            currentWireWaypoints.clear();
-                            mode = Mode::Idle;
-                        } else {
-                            // Wire splitting: click on existing wire to connect
-                            ImVec2 wirePos;
-                            int targetWire = hitWire(wp, origin, size, wirePos);
-                            if (targetWire >= 0) {
-                                insertJunctionOnWire(targetWire, wirePos);
-                                if (!junctions.empty()) {
-                                    dst.kind = EndpointKind::Junction;
-                                    dst.junctionId = junctions.back().id;
-                                    completeWire(wireSrc, dst, 1);
-                                    if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
-                                    currentWireWaypoints.clear();
-                                    mode = Mode::Idle;
-                                }
-                            } else {
-                                // Clicked empty space while drawing wire! Drop waypoint.
-                                currentWireWaypoints.push_back(snapToGrid(wp));
+                        // Wire splitting: click on existing wire to connect
+                        ImVec2 wirePos;
+                        int targetWire = hitWire(wp, origin, size, wirePos);
+                        if (targetWire >= 0) {
+                            insertJunctionOnWire(targetWire, wirePos);
+                            if (!junctions.empty()) {
+                                dst.kind = EndpointKind::Junction;
+                                dst.junctionId = junctions.back().id;
+                                completeWire(wireSrc, dst, 1);
+                                if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
+                                currentWireWaypoints.clear();
+                                mode = Mode::Idle;
                             }
+                        } else {
+                            // Clicked empty space while drawing wire! Drop waypoint.
+                            currentWireWaypoints.push_back(snapToGrid(wp));
                         }
                     }
                 }
@@ -2388,17 +2285,6 @@ void Canvas::render()
                 draggingPinIdx = pinIdx;
                 draggingPinIsDriver = isDriver;
                 mode = Mode::PendingPinAction;
-                goto end_click;
-            }
-
-            // Check Rail
-            bool railVdd; float railX;
-            if (hitRailTap(wp, origin, size, railVdd, railX)) {
-                wireSrc.kind = EndpointKind::Rail;
-                wireSrc.railIsVdd = railVdd;
-                wireSrc.railX = railX;
-                currentWireWaypoints.clear();
-                mode = Mode::DrawingWire;
                 goto end_click;
             }
 

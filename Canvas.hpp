@@ -38,7 +38,13 @@ public:
     void settle() { if (sim) sim->settle(); }
 
     std::string serialize() const;
-    void        deserialize(const std::string& data, bool ignoreInputStates = false);
+    enum class DeserializeMode {
+        RestoreAll,
+        IgnoreInputStates,
+        RestoreInternalOnly
+    };
+    void deserialize(const std::string& data, bool ignoreInputStates = false);
+    void deserialize(const std::string& data, DeserializeMode mode);
 
     const auto& getComps() const { return comps; }
 

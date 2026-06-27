@@ -12,8 +12,9 @@ struct CustomPortDef {
     int internalCompId;
     std::string label;
     int busWidth;
-    int side; // 0=Left, 1=Top, 2=Right, 3=Bottom
-    int order;
+    int side = 0; // 0=Left, 1=Top, 2=Right, 3=Bottom
+    float t = 0.5f; // parametric position along edge (0.0–1.0)
+    int order = 0;  // legacy; used when t was not saved
 };
 
 struct CustomComponentDef {

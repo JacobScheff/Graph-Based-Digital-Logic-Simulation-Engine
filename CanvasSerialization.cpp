@@ -103,6 +103,12 @@ std::string Canvas::serialize() const
 
 void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
 {
+    deserialize(data, ignoreInputStates ? DeserializeMode::IgnoreInputStates
+                                        : DeserializeMode::RestoreAll);
+}
+
+void Canvas::deserialize(const std::string& data, DeserializeMode mode)
+{
     if (data.empty()) return;
     
     clear();
@@ -140,7 +146,7 @@ void Canvas::deserialize(const std::string& data, bool ignoreInputStates)
                 } else if (cv.typeName == "CLK") {
                     if (auto* c = dynamic_cast<Clock*>(cv.comp.get()))
                         c->setHalfPeriod(jc.value("clockPeriod", 10));
-                } else if (!ignoreInputStates) {
+                } else if (mode != DeserializeMode::IgnoreInputStates) {
                     if (cv.typeName == "SW") {
                         if (auto* s = dynamic_cast<Switch*>(cv.comp.get())) {
                             bool isHigh = jc.value("state", false);
