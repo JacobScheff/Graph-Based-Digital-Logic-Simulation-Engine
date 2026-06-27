@@ -1547,7 +1547,7 @@ const char* Canvas::pinLabel(const std::string& type, bool isInput, int idx, int
             if (idx == 0) return "A";
         }
         if (type == "NUM_DISP") {
-            static const char* nb[] = {"3","2","1","0"};
+            static const char* nb[] = {"0","1","2","3"};
             if (idx < 4) return nb[idx];
         }
         if (type == "BUS_MERGE") {
@@ -1585,6 +1585,10 @@ const char* Canvas::pinLabel(const std::string& type, bool isInput, int idx, int
             static char buf[8];
             std::snprintf(buf, sizeof(buf), "%d", idx);
             return buf;
+        }
+        if (type == "NUM_IN") {
+            static const char* nb[] = {"0","1","2","3"};
+            if (idx < 4) return nb[idx];
         }
         if (type == "BUS_MERGE") {
             static char buf[16];
