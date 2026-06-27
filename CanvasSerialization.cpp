@@ -182,8 +182,10 @@ void Canvas::deserialize(const std::string& data, DeserializeMode mode)
                     }
                 }
                 
-                // If layouts were missing (old save), initialize defaults
-                if (cv.receiverLayout.empty() || cv.driverLayout.empty()) {
+                // If layouts were missing (old save), initialize defaults.
+                // RGB displays always use a fixed left-side pin layout.
+                if (cv.typeName == "RGB_DISP" ||
+                    cv.receiverLayout.empty() || cv.driverLayout.empty()) {
                     initPinLayouts(cv);
                 }
                 
