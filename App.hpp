@@ -1,6 +1,7 @@
 #pragma once
 #include "Simulator.hpp"
 #include "Canvas.hpp"
+#include "CustomComponent.hpp"
 
 struct GLFWwindow;
 
@@ -48,6 +49,8 @@ private:
     };
     std::vector<PortUI> saveInPorts;
     std::vector<PortUI> saveOutPorts;
+    bool saveHasScreen = false;
+    ScreenDef saveScreen;
     int savePreviewDragIdx = -1;
     bool savePreviewDragIsInput = true;
 

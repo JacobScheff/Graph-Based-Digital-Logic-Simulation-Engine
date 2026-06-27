@@ -37,10 +37,19 @@ void CustomComponent::setSimulator(Simulator* s)
     Component::setSimulator(s);
 }
 
+const ResolvedScreen* CustomComponent::getResolvedScreen() const
+{
+    return resolvedScreen.has_value() ? &resolvedScreen.value() : nullptr;
+}
+
 void CustomComponent::registerInternals(Simulator* sim,
                                        const std::unordered_map<std::string, CustomComponentDef>& customDefs)
 {
+    if (!internalComps.empty())
+        unregisterInternals(sim);
+
     setSimulator(sim);
+    resolvedScreen.reset();
 
     // Create a temporary canvas attached to this simulator.
     // Nested custom components (e.g. 1-Bit Switch inside 4-Bit Switch) need the
@@ -71,6 +80,20 @@ void CustomComponent::registerInternals(Simulator* sim,
                 rawInternalNets.push_back(n);
             }
         }
+    }
+
+    if (def.screen.has_value()) {
+        ResolvedScreen rs;
+        rs.layout = def.screen.value();
+        for (const auto& pd : def.screen->pixels) {
+            auto it = compMap.find(pd.internalCompId);
+            if (it == compMap.end()) continue;
+            auto* rgb = dynamic_cast<RGBDisplay*>(it->second);
+            if (!rgb) continue;
+            rs.pixels.push_back({rgb, pd.col, pd.row});
+        }
+        if (!rs.pixels.empty())
+            resolvedScreen = std::move(rs);
     }
 
     // Now map PORT_IN and PORT_OUT to our external pins
@@ -106,4 +129,6 @@ void CustomComponent::unregisterInternals(Simulator* sim)
         sim->removeNet(n);
     }
     rawInternalNets.clear();
+    internalComps.clear();
+    resolvedScreen.reset();
 }

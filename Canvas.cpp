@@ -16,6 +16,49 @@ constexpr ImU32 kRgbChannelLabelColors[3] = {
     IM_COL32(90, 210, 100, 230),
     IM_COL32(90, 150, 235, 230),
 };
+
+void drawRgbPixelCell(ImDrawList* dl, RGBDisplay* rgb, ImVec2 cellTL, ImVec2 cellBR, float round)
+{
+    if (rgb->hasAmbiguity()) {
+        dl->AddRectFilled(cellTL, cellBR, IM_COL32(45, 45, 55, 255), round);
+    } else {
+        uint32_t col = rgb->getColor();
+        dl->AddRectFilled(cellTL, cellBR,
+            IM_COL32((col >> 16) & 0xFF, (col >> 8) & 0xFF, col & 0xFF, 255), round);
+    }
+}
+
+void drawResolvedScreen(ImDrawList* dl, ImVec2 bodyTL, ImVec2 bodyBR, const ResolvedScreen& screen, float zoom)
+{
+    const ScreenDef& layout = screen.layout;
+    float bodyW = bodyBR.x - bodyTL.x;
+    float bodyH = bodyBR.y - bodyTL.y;
+    ImVec2 scrTL = { bodyTL.x + layout.x * bodyW, bodyTL.y + layout.y * bodyH };
+    ImVec2 scrBR = { scrTL.x + layout.w * bodyW, scrTL.y + layout.h * bodyH };
+
+    dl->AddRect(scrTL, scrBR, IM_COL32(30, 30, 40, 200), 2.f * zoom, 0, 1.f);
+
+    if (layout.cols <= 0 || layout.rows <= 0)
+        return;
+
+    float cellW = (scrBR.x - scrTL.x) / float(layout.cols);
+    float cellH = (scrBR.y - scrTL.y) / float(layout.rows);
+    float gap = std::max(1.f, zoom * 0.5f);
+    float round = std::min(2.f * zoom, cellW * 0.15f);
+
+    for (const auto& px : screen.pixels) {
+        if (!px.display) continue;
+        ImVec2 pTL = {
+            scrTL.x + px.col * cellW + gap * 0.5f,
+            scrTL.y + px.row * cellH + gap * 0.5f
+        };
+        ImVec2 pBR = {
+            scrTL.x + (px.col + 1) * cellW - gap * 0.5f,
+            scrTL.y + (px.row + 1) * cellH - gap * 0.5f
+        };
+        drawRgbPixelCell(dl, px.display, pTL, pBR, round);
+    }
+}
 } // namespace
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
@@ -1616,6 +1659,16 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
                                   : IM_COL32(55, 58, 72, 255);
     dl->AddRect(tl, br, borderCol, rounding, 0, cv.selected ? 2.5f : 1.5f);
 
+    bool drewCustomScreen = false;
+    if (customDefs.find(cv.typeName) != customDefs.end()) {
+        if (auto* cc = dynamic_cast<CustomComponent*>(cv.comp.get())) {
+            if (const ResolvedScreen* rs = cc->getResolvedScreen()) {
+                drawResolvedScreen(dl, tl, br, *rs, zoom);
+                drewCustomScreen = true;
+            }
+        }
+    }
+
     // ── RGB color swatch ──
     if (cv.typeName == "RGB_DISP") {
         auto* rgb = static_cast<RGBDisplay*>(cv.comp.get());
@@ -1697,12 +1750,15 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         } else if (cv.typeName == "PORT_OUT") {
             if (auto* po = dynamic_cast<PortOut*>(cv.comp.get())) labelStr = po->label;
         }
-        
-        ImVec2 ts     = ImGui::CalcTextSize(labelStr.c_str());
-        float scale   = fontSize / ImGui::GetFontSize();
-        dl->AddText(ImGui::GetFont(), fontSize,
-                    { centre.x - ts.x * scale * .5f, centre.y - ts.y * scale * .5f },
-                    IM_COL32(220, 225, 240, 255), labelStr.c_str());
+
+        bool skipCustomLabel = drewCustomScreen;
+        if (!skipCustomLabel) {
+            ImVec2 ts     = ImGui::CalcTextSize(labelStr.c_str());
+            float scale   = fontSize / ImGui::GetFontSize();
+            dl->AddText(ImGui::GetFont(), fontSize,
+                        { centre.x - ts.x * scale * .5f, centre.y - ts.y * scale * .5f },
+                        IM_COL32(220, 225, 240, 255), labelStr.c_str());
+        }
     }
 
     // ── LED glow effect ──
