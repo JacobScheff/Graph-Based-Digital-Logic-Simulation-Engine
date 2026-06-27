@@ -157,7 +157,7 @@ void Canvas::initPinLayouts(ComponentView& cv)
         int cw = cv.busWidth;
         int nRcv = cw * 3;
         cv.receiverLayout.resize(nRcv);
-        static const float channelT[] = {0.75f, 0.5f, 0.25f};
+        static const float channelT[] = {0.25f, 0.5f, 0.75f};
         for (int c = 0; c < 3; ++c) {
             for (int b = 0; b < cw; ++b) {
                 PinLayout pl;
