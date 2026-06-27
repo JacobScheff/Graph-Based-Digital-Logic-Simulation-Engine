@@ -228,8 +228,7 @@ public:
     {
         if (!getSimulator()) return true;
         for (int i = 0; i < numReceivers(); ++i) {
-            State s = receivers[i]->getState();
-            if (!readAsTrue(s, *this) && !readAsFalse(s, *this))
+            if (receivers[i]->getState() == State::UNDEFINED)
                 return true;
         }
         return false;

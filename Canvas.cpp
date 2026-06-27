@@ -1793,8 +1793,13 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             } else {
                 textPos = { edge.x - ts.x * sc * 0.5f, edge.y - ts.y * sc - 3.f * zoom };
             }
-            dl->AddText(ImGui::GetFont(), fontSize * .75f, textPos,
-                        IM_COL32(160,165,180,220), lbl);
+            ImU32 labelCol = IM_COL32(160, 165, 180, 220);
+            if (cv.typeName == "RGB_DISP") {
+                int channel = i / std::max(1, bw);
+                if (channel >= 0 && channel < 3)
+                    labelCol = kRgbChannelLabelColors[channel];
+            }
+            dl->AddText(ImGui::GetFont(), fontSize * .75f, textPos, labelCol, lbl);
         }
     }
 
