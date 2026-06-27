@@ -8,6 +8,16 @@
 #include <cmath>
 #include <cstdio>
 
+namespace {
+constexpr float kRgbChannelT[3] = {0.25f, 0.5f, 0.75f};
+constexpr const char* kRgbChannelNames[3] = {"R", "G", "B"};
+constexpr ImU32 kRgbChannelLabelColors[3] = {
+    IM_COL32(235, 90, 90, 230),
+    IM_COL32(90, 210, 100, 230),
+    IM_COL32(90, 150, 235, 230),
+};
+} // namespace
+
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
 ImU32 Canvas::stateColor(State s) const
@@ -157,12 +167,11 @@ void Canvas::initPinLayouts(ComponentView& cv)
         int cw = cv.busWidth;
         int nRcv = cw * 3;
         cv.receiverLayout.resize(nRcv);
-        static const float channelT[] = {0.25f, 0.5f, 0.75f};
         for (int c = 0; c < 3; ++c) {
             for (int b = 0; b < cw; ++b) {
                 PinLayout pl;
                 pl.side = 0;
-                pl.t = channelT[c];
+                pl.t = kRgbChannelT[c];
                 cv.receiverLayout[c * cw + b] = pl;
             }
         }
@@ -1516,11 +1525,10 @@ const char* Canvas::pinLabel(const std::string& type, bool isInput, int idx, int
             if (cw < 1) cw = 1;
             if (idx % cw != 0) return "";
             int channel = idx / cw;
-            static const char* ch[] = {"R", "G", "B"};
             if (channel >= 3) return "";
-            if (cw == 1) return ch[channel];
+            if (cw == 1) return kRgbChannelNames[channel];
             static char buf[16];
-            std::snprintf(buf, sizeof(buf), "%s[%d]", ch[channel], cw);
+            std::snprintf(buf, sizeof(buf), "%s[%d]", kRgbChannelNames[channel], cw);
             return buf;
         }
         if (type == "BUS_MERGE") {
@@ -1612,7 +1620,8 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     if (cv.typeName == "RGB_DISP") {
         auto* rgb = static_cast<RGBDisplay*>(cv.comp.get());
         float pad = 8.f * zoom;
-        ImVec2 innerTL = { tl.x + pad, tl.y + pad };
+        float labelCol = 14.f * zoom;
+        ImVec2 innerTL = { tl.x + pad + labelCol, tl.y + pad };
         ImVec2 innerBR = { br.x - pad, br.y - pad };
         float swatchRound = 4.f * zoom;
 
@@ -1642,6 +1651,16 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             dl->AddText(ImGui::GetFont(), fontSize * 0.65f,
                         { innerBR.x - ts.x * sc - 2.f, innerBR.y - ts.y * sc - 2.f },
                         IM_COL32(220, 220, 230, 200), hexBuf);
+        }
+
+        float labelSize = fontSize * 0.75f;
+        float labelScale = labelSize / ImGui::GetFontSize();
+        for (int c = 0; c < 3; ++c) {
+            ImVec2 ts = ImGui::CalcTextSize(kRgbChannelNames[c]);
+            float y = tl.y + kRgbChannelT[c] * (br.y - tl.y);
+            dl->AddText(ImGui::GetFont(), labelSize,
+                        { tl.x + pad, y - ts.y * labelScale * 0.5f },
+                        kRgbChannelLabelColors[c], kRgbChannelNames[c]);
         }
     }
 

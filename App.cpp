@@ -744,13 +744,14 @@ static void drawPaletteIcon(ImDrawList* dl, ImVec2 pos, const char* type, ImU32 
         // Filled circle (LED)
         dl->AddCircleFilled(ImVec2(cx, cy), S * 0.45f, col);
     } else if (strcmp(type, "RGB_DISP") == 0) {
-        // RGB gradient square
-        dl->AddRectFilled(ImVec2(pos.x + 1.f, pos.y + 1.f), ImVec2(pos.x + S - 1.f, pos.y + S - 1.f),
+        // Vertical R/G/B bands on the left
+        float x0 = pos.x + 1.f, x1 = pos.x + S * 0.38f;
+        dl->AddRectFilled(ImVec2(x0, pos.y + 1.f), ImVec2(x1, pos.y + S * 0.34f),
                           IM_COL32(220, 60, 60, 255), 1.f);
-        dl->AddRectFilled(ImVec2(pos.x + 1.f, pos.y + 1.f), ImVec2(pos.x + S * 0.45f, pos.y + S - 1.f),
-                          IM_COL32(220, 60, 60, 255), 1.f);
-        dl->AddRectFilled(ImVec2(pos.x + S * 0.45f, pos.y + 1.f), ImVec2(pos.x + S - 1.f, pos.y + S - 1.f),
+        dl->AddRectFilled(ImVec2(x0, pos.y + S * 0.34f), ImVec2(x1, pos.y + S * 0.67f),
                           IM_COL32(60, 200, 80, 255), 1.f);
+        dl->AddRectFilled(ImVec2(x0, pos.y + S * 0.67f), ImVec2(x1, pos.y + S - 1.f),
+                          IM_COL32(60, 120, 220, 255), 1.f);
         dl->AddRect(ImVec2(pos.x + 1.f, pos.y + 1.f), ImVec2(pos.x + S - 1.f, pos.y + S - 1.f),
                     col, 1.f, 0, 1.f);
     } else if (strcmp(type, "REG") == 0) {
