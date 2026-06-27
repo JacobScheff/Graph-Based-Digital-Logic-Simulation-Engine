@@ -3,6 +3,7 @@
 #include "Pin.hpp"
 #include "Net.hpp"
 #include "PowerRails.hpp"
+#include "CustomComponentScreen.hpp"
 #include "json.hpp"
 
 using json = nlohmann::json;
@@ -68,6 +69,9 @@ bool App::loadCustomComponentFile(const std::string& filename) {
                 def.outPorts.push_back(p);
             }
         }
+
+        if (auto screen = screenDefFromJson(j))
+            def.screen = std::move(screen);
         
         canvas.customDefs[def.typeName] = def;
         return true;
@@ -139,6 +143,56 @@ PreviewPinLayout projectOntoPreviewBox(ImVec2 boxMin, ImVec2 boxSize, ImVec2 wp)
     return pl;
 }
 
+RGBDisplay* findRgbDisplayById(const Canvas& canvas, int compId)
+{
+    for (const auto& cv : canvas.getComps()) {
+        if (cv.id == compId && cv.typeName == "RGB_DISP" && cv.comp)
+            return dynamic_cast<RGBDisplay*>(cv.comp.get());
+    }
+    return nullptr;
+}
+
+void drawPreviewScreen(ImDrawList* dl, ImVec2 boxMin, ImVec2 boxSize, const ScreenDef& screen,
+                       const Canvas& canvas)
+{
+    ImVec2 scrTL = {
+        boxMin.x + screen.x * boxSize.x,
+        boxMin.y + screen.y * boxSize.y
+    };
+    ImVec2 scrBR = {
+        scrTL.x + screen.w * boxSize.x,
+        scrTL.y + screen.h * boxSize.y
+    };
+    dl->AddRect(scrTL, scrBR, IM_COL32(30, 30, 40, 200), 2.f, 0, 1.f);
+
+    if (screen.cols <= 0 || screen.rows <= 0)
+        return;
+
+    float cellW = (scrBR.x - scrTL.x) / float(screen.cols);
+    float cellH = (scrBR.y - scrTL.y) / float(screen.rows);
+    float gap = 0.5f;
+
+    for (const auto& px : screen.pixels) {
+        auto* rgb = findRgbDisplayById(canvas, px.internalCompId);
+        if (!rgb) continue;
+        ImVec2 pTL = {
+            scrTL.x + px.col * cellW + gap,
+            scrTL.y + px.row * cellH + gap
+        };
+        ImVec2 pBR = {
+            scrTL.x + (px.col + 1) * cellW - gap,
+            scrTL.y + (px.row + 1) * cellH - gap
+        };
+        if (rgb->hasAmbiguity()) {
+            dl->AddRectFilled(pTL, pBR, IM_COL32(45, 45, 55, 255), 1.f);
+        } else {
+            uint32_t col = rgb->getColor();
+            dl->AddRectFilled(pTL, pBR,
+                IM_COL32((col >> 16) & 0xFF, (col >> 8) & 0xFF, col & 0xFF, 255), 1.f);
+        }
+    }
+}
+
 } // namespace
 
 void App::renderSaveCustomPreview()
@@ -171,10 +225,14 @@ void App::renderSaveCustomPreview()
     dl->AddRectFilled(boxMin, boxMax, IM_COL32(30, 32, 44, 255), 3.f);
     dl->AddRect(boxMin, boxMax, IM_COL32(80, 190, 200, 180), 3.f);
 
-    const char* title = saveCustomName[0] ? saveCustomName : "Component";
-    ImVec2 ts = ImGui::CalcTextSize(title);
-    dl->AddText({boxMin.x + (boxSize.x - ts.x) * 0.5f, boxMin.y + (boxSize.y - ts.y) * 0.5f},
-                IM_COL32(200, 205, 220, 255), title);
+    if (saveHasScreen)
+        drawPreviewScreen(dl, boxMin, boxSize, saveScreen, canvas);
+    else {
+        const char* title = saveCustomName[0] ? saveCustomName : "Component";
+        ImVec2 ts = ImGui::CalcTextSize(title);
+        dl->AddText({boxMin.x + (boxSize.x - ts.x) * 0.5f, boxMin.y + (boxSize.y - ts.y) * 0.5f},
+                    IM_COL32(200, 205, 220, 255), title);
+    }
 
     char dimBuf[64];
     std::snprintf(dimBuf, sizeof(dimBuf), "%d x %d", saveCustomWidth, saveCustomHeight);
@@ -483,6 +541,13 @@ void App::renderFrame()
         ImGui::InputInt("Width", &saveCustomWidth);
         ImGui::InputInt("Height", &saveCustomHeight);
 
+        if (saveHasScreen) {
+            ImGui::Text("Screen: %d x %d (%zu pixels)",
+                        saveScreen.cols, saveScreen.rows, saveScreen.pixels.size());
+        } else {
+            ImGui::TextDisabled("No RGB displays in circuit (screen will not be included).");
+        }
+
         ImGui::Spacing();
         ImGui::SeparatorText("Preview");
         ImGui::TextDisabled("Drag ports along the edges to position them.");
@@ -517,6 +582,9 @@ void App::renderFrame()
                 def.outPorts.push_back(cpd);
             }
 
+            if (saveHasScreen)
+                def.screen = saveScreen;
+
             // Save JSON to disk
             json j;
             j["typeName"] = def.typeName;
@@ -540,6 +608,8 @@ void App::renderFrame()
             };
             j["inPorts"] = portsToJson(def.inPorts);
             j["outPorts"] = portsToJson(def.outPorts);
+            if (def.screen.has_value())
+                j["screen"] = screenDefToJson(def.screen.value());
 
             // We should use a file browser, but for simplicity we save to current dir
             std::string filename = currentFilePath.empty() ? (std::string(saveCustomName) + ".json") : currentFilePath;
@@ -603,6 +673,8 @@ void App::renderMenuBar()
             }
             saveCustomWidth = 100;
             saveCustomHeight = 100;
+            saveHasScreen = false;
+            saveScreen = ScreenDef{};
             saveInPorts.clear();
             saveOutPorts.clear();
             for (const auto& cv : canvas.getComps()) {
@@ -638,6 +710,19 @@ void App::renderMenuBar()
                         }
                     }
                 }
+                if (def.screen.has_value()) {
+                    saveScreen = def.screen.value();
+                    saveHasScreen = true;
+                }
+            };
+            auto refreshScreenFromCanvas = [&]() {
+                if (auto detected = detectScreenFromCanvas(canvas)) {
+                    saveScreen = detected.value();
+                    saveHasScreen = true;
+                } else {
+                    saveHasScreen = false;
+                    saveScreen = ScreenDef{};
+                }
             };
             bool loadedExisting = false;
             if (!currentFilePath.empty() && saveCustomName[0] != '\0') {
@@ -659,6 +744,7 @@ void App::renderMenuBar()
                 initDefaults(saveInPorts, 0);
                 initDefaults(saveOutPorts, 2);
             }
+            refreshScreenFromCanvas();
             savePreviewDragIdx = -1;
         }
         if (ImGui::MenuItem("Load Custom Component")) {
