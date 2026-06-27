@@ -143,9 +143,9 @@ PreviewPinLayout projectOntoPreviewBox(ImVec2 boxMin, ImVec2 boxSize, ImVec2 wp)
 
 void App::renderSaveCustomPreview()
 {
-    const float previewW = 320.f;
-    const float previewH = 220.f;
-    const float pad = 28.f;
+    const float previewW = 480.f;
+    const float previewH = 340.f;
+    const float pad = 32.f;
 
     saveCustomWidth = std::max(saveCustomWidth, 40);
     saveCustomHeight = std::max(saveCustomHeight, 40);
@@ -217,8 +217,6 @@ void App::renderSaveCustomPreview()
         ImVec2 edge = previewPinEdge(boxMin, boxSize, p.side, p.t);
         ImVec2 tip = previewPinTip(boxMin, boxSize, p.side, p.t, 14.f);
         float lw = p.busWidth > 1 ? 4.f : 2.f;
-        dl->AddLine(edge, tip, col, lw);
-        dl->AddCircleFilled(tip, p.busWidth > 1 ? 7.f : 5.f, col);
 
         char lbl[64];
         if (p.busWidth > 1)
@@ -226,12 +224,16 @@ void App::renderSaveCustomPreview()
         else
             std::snprintf(lbl, sizeof(lbl), "%s", p.label.c_str());
         ImVec2 ls = ImGui::CalcTextSize(lbl);
+        const float labelPad = 4.f;
         ImVec2 lp;
-        if (p.side == 0) lp = {tip.x + 4.f, tip.y - ls.y * 0.5f};
-        else if (p.side == 2) lp = {tip.x - ls.x - 4.f, tip.y - ls.y * 0.5f};
-        else if (p.side == 1) lp = {tip.x - ls.x * 0.5f, tip.y + 4.f};
-        else lp = {tip.x - ls.x * 0.5f, tip.y - ls.y - 4.f};
+        if (p.side == 0) lp = {edge.x + labelPad, edge.y - ls.y * 0.5f};
+        else if (p.side == 2) lp = {edge.x - ls.x - labelPad, edge.y - ls.y * 0.5f};
+        else if (p.side == 1) lp = {edge.x - ls.x * 0.5f, edge.y + labelPad};
+        else lp = {edge.x - ls.x * 0.5f, edge.y - ls.y - labelPad};
         dl->AddText(lp, IM_COL32(190, 195, 210, 230), lbl);
+
+        dl->AddLine(edge, tip, col, lw);
+        dl->AddCircleFilled(tip, p.busWidth > 1 ? 7.f : 5.f, col);
     };
 
     for (const auto& p : saveInPorts)
@@ -451,12 +453,19 @@ void App::renderFrame()
             ImGui::PopStyleColor(3);
         };
         busBtn("1-bit", 1);
-        ImGui::SameLine();
-        busBtn("2-bit", 2);
-        ImGui::SameLine();
-        busBtn("4-bit", 4);
-        ImGui::SameLine();
-        busBtn("8-bit", 8);
+        if (pendingBusType == "RGB_DISP") {
+            ImGui::SameLine();
+            busBtn("4-bit", 4);
+            ImGui::SameLine();
+            busBtn("8-bit", 8);
+        } else {
+            ImGui::SameLine();
+            busBtn("2-bit", 2);
+            ImGui::SameLine();
+            busBtn("4-bit", 4);
+            ImGui::SameLine();
+            busBtn("8-bit", 8);
+        }
         ImGui::Spacing();
         if (ImGui::Button("Cancel", {88, 28}))
             ImGui::CloseCurrentPopup();
@@ -464,10 +473,12 @@ void App::renderFrame()
     }
 
     if (showSaveCustomPopup) {
+        ImGui::SetNextWindowSize({520.f, 0.f}, ImGuiCond_Appearing);
         ImGui::OpenPopup("Save Custom Component");
         showSaveCustomPopup = false;
     }
     if (ImGui::BeginPopupModal("Save Custom Component", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::SetNextItemWidth(360.f);
         ImGui::InputText("Component Name", saveCustomName, sizeof(saveCustomName));
         ImGui::InputInt("Width", &saveCustomWidth);
         ImGui::InputInt("Height", &saveCustomHeight);
@@ -732,6 +743,16 @@ static void drawPaletteIcon(ImDrawList* dl, ImVec2 pos, const char* type, ImU32 
     } else if (strcmp(type, "LED") == 0) {
         // Filled circle (LED)
         dl->AddCircleFilled(ImVec2(cx, cy), S * 0.45f, col);
+    } else if (strcmp(type, "RGB_DISP") == 0) {
+        // RGB gradient square
+        dl->AddRectFilled(ImVec2(pos.x + 1.f, pos.y + 1.f), ImVec2(pos.x + S - 1.f, pos.y + S - 1.f),
+                          IM_COL32(220, 60, 60, 255), 1.f);
+        dl->AddRectFilled(ImVec2(pos.x + 1.f, pos.y + 1.f), ImVec2(pos.x + S * 0.45f, pos.y + S - 1.f),
+                          IM_COL32(220, 60, 60, 255), 1.f);
+        dl->AddRectFilled(ImVec2(pos.x + S * 0.45f, pos.y + 1.f), ImVec2(pos.x + S - 1.f, pos.y + S - 1.f),
+                          IM_COL32(60, 200, 80, 255), 1.f);
+        dl->AddRect(ImVec2(pos.x + 1.f, pos.y + 1.f), ImVec2(pos.x + S - 1.f, pos.y + S - 1.f),
+                    col, 1.f, 0, 1.f);
     } else if (strcmp(type, "REG") == 0) {
         // Box with 'R'
         dl->AddRect(ImVec2(pos.x, pos.y), ImVec2(pos.x + S, pos.y + S), col, 1.f, 0, 1.5f);
@@ -888,6 +909,7 @@ void App::renderPalette()
         ImGui::Spacing();
         paletteBtn("LED",      "LED",      "Single-bit LED indicator");
         paletteBtn("Num Disp", "NUM_DISP", "4-bit numeric display (0\xe2\x80\x93" "15)");
+        busPaletteBtn("RGB Disp", "RGB_DISP", "RGB color display (1/4/8-bit per channel)");
         ImGui::Spacing();
         ImGui::Unindent(4.f);
     }
@@ -1126,6 +1148,30 @@ void App::renderProperties()
         ImGui::Text("Value: %d  (0x%X)", nd->getValue(), nd->getValue());
         if (nd->hasAmbiguity())
             ImGui::TextColored({1.f,0.45f,0.4f,1.f}, "  (ambiguous input)");
+    }
+
+    if (type == "RGB_DISP") {
+        auto* rgb = static_cast<RGBDisplay*>(comp);
+        int cw = rgb->getBusWidth();
+        ImGui::Text("Channel width: %d bit%s", cw, cw == 1 ? "" : "s");
+        if (rgb->hasAmbiguity()) {
+            ImGui::TextColored({1.f, 0.45f, 0.4f, 1.f}, "Ambiguous input");
+        } else {
+            int r = rgb->getChannelValue(0);
+            int g = rgb->getChannelValue(1);
+            int b = rgb->getChannelValue(2);
+            ImGui::Text("R: %d   G: %d   B: %d", r, g, b);
+            uint32_t col = rgb->getColor();
+            ImGui::Text("Color: #%06X", col & 0xFFFFFFu);
+            ImDrawList* pdl = ImGui::GetWindowDrawList();
+            ImVec2 cur = ImGui::GetCursorScreenPos();
+            pdl->AddRectFilled(ImVec2(cur.x, cur.y + 2.f), ImVec2(cur.x + 48.f, cur.y + 22.f),
+                               IM_COL32((col >> 16) & 0xFF, (col >> 8) & 0xFF, col & 0xFF, 255), 3.f);
+            pdl->AddRect(ImVec2(cur.x, cur.y + 2.f), ImVec2(cur.x + 48.f, cur.y + 22.f),
+                         IM_COL32(80, 80, 90, 255), 3.f);
+            ImGui::Dummy({48.f, 26.f});
+        }
+        ImGui::TextDisabled("(delete and re-place to change width)");
     }
 
     if (type == "LED") {

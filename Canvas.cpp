@@ -153,6 +153,23 @@ void Canvas::initPinLayouts(ComponentView& cv)
         return;
     }
 
+    if (cv.typeName == "RGB_DISP") {
+        int cw = cv.busWidth;
+        int nRcv = cw * 3;
+        cv.receiverLayout.resize(nRcv);
+        static const float channelT[] = {0.75f, 0.5f, 0.25f};
+        for (int c = 0; c < 3; ++c) {
+            for (int b = 0; b < cw; ++b) {
+                PinLayout pl;
+                pl.side = 0;
+                pl.t = channelT[c];
+                cv.receiverLayout[c * cw + b] = pl;
+            }
+        }
+        cv.driverLayout.clear();
+        return;
+    }
+
     int nRcv = cv.comp ? cv.comp->numReceivers() : 0;
     int nDrv = cv.comp ? cv.comp->numDrivers()   : 0;
 
@@ -415,6 +432,8 @@ int Canvas::componentBusWidth(const ComponentView& cv) const
         return cv.busWidth;
     if (cv.typeName == "NUM_IN" || cv.typeName == "NUM_DISP")
         return 4;
+    if (cv.typeName == "RGB_DISP")
+        return cv.busWidth;
     return 1;
 }
 
@@ -440,6 +459,23 @@ bool Canvas::isCustomPortStart(const std::string& typeName, bool isInput, int pi
     return true; // Not a custom component or not inside a bus port
 }
 
+bool Canvas::isPortGroupStart(const ComponentView& cv, bool isInput, int pinIdx, int& outBusWidth) const
+{
+    if (cv.typeName == "RGB_DISP" && isInput) {
+        int cw = cv.busWidth;
+        if (pinIdx == 0 || pinIdx == cw || pinIdx == 2 * cw) {
+            outBusWidth = cw;
+            return true;
+        }
+        if (pinIdx < 3 * cw && pinIdx % cw != 0) {
+            outBusWidth = -1;
+            return false;
+        }
+        return false;
+    }
+    return isCustomPortStart(cv.typeName, isInput, pinIdx, outBusWidth);
+}
+
 std::unique_ptr<Component> Canvas::makeComponent(const std::string& type, int busWidth)
 {
     if (type == "NOT")      return std::make_unique<NotGate>();
@@ -456,6 +492,7 @@ std::unique_ptr<Component> Canvas::makeComponent(const std::string& type, int bu
     if (type == "LED")      return std::make_unique<LED>();
     if (type == "NUM_IN")   return std::make_unique<NumericInput>();
     if (type == "NUM_DISP") return std::make_unique<NumericDisplay>();
+    if (type == "RGB_DISP") return std::make_unique<RGBDisplay>(busWidth);
     if (type == "JUNCTION") return std::make_unique<Junction>();
     if (type == "BUS_MERGE") return std::make_unique<BusMerge>(busWidth);
     if (type == "BUS_SPLIT") return std::make_unique<BusSplit>(busWidth);
@@ -499,6 +536,9 @@ ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth) const
     } else if (type == "NUM_DISP") {
         numReceivers = 4;
         numDrivers = 0;
+    } else if (type == "RGB_DISP") {
+        numReceivers = busWidth * 3;
+        numDrivers = 0;
     } else if (type == "JUNCTION") {
         numReceivers = 1;
         numDrivers = 1;
@@ -523,6 +563,10 @@ ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth) const
     
     int maxPins = std::max(numReceivers, numDrivers);
     float h = std::max(50.f, float(maxPins + 1) * PIN_SPACE);
+    if (type == "RGB_DISP") {
+        h = std::max(90.f, 4.f * PIN_SPACE);
+        return { COMP_W + 10.f, h };
+    }
     if (type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG") {
         h = std::max(h, float(busWidth + 1) * PIN_SPACE);
     }
@@ -581,8 +625,17 @@ int Canvas::getAvailablePortWidth(const ComponentView* cv, int pinIdx, bool isIn
     auto it = customDefs.find(cv->typeName);
     if (it != customDefs.end()) {
         int customBw = 1;
-        if (isCustomPortStart(cv->typeName, isInput, pinIdx, customBw)) {
+        if (isPortGroupStart(*cv, isInput, pinIdx, customBw)) {
             return customBw;
+        }
+        return 1;
+    }
+
+    if (cv->typeName == "RGB_DISP") {
+        if (isInput) {
+            int cw = cv->busWidth;
+            if (pinIdx == 0 || pinIdx == cw || pinIdx == 2 * cw)
+                return cw;
         }
         return 1;
     }
@@ -1131,7 +1184,7 @@ int Canvas::hitDriverPin(ImVec2 wp, int& outId, bool busSide) const
         if (cv.typeName == "PORT_OUT") continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
             int customPortBw = 1;
-            if (!isCustomPortStart(cv.typeName, false, i, customPortBw)) continue;
+            if (!isPortGroupStart(cv, false, i, customPortBw)) continue;
             
             // If the port has busWidth > 1, it only hits if busSide is true
             // Wait, does the canvas drawing distinguish bus side for custom components?
@@ -1166,7 +1219,7 @@ int Canvas::hitReceiverPin(ImVec2 wp, int& outId, bool busSide) const
         if (cv.typeName == "PORT_IN") continue;
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
             int customPortBw = 1;
-            if (!isCustomPortStart(cv.typeName, true, i, customPortBw)) continue;
+            if (!isPortGroupStart(cv, true, i, customPortBw)) continue;
             
             if ((customPortBw > 1) != busSide) continue;
 
@@ -1281,7 +1334,7 @@ int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriv
         if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
             int customPortBw = 1;
-            if (!isCustomPortStart(cv.typeName, false, i, customPortBw)) continue;
+            if (!isPortGroupStart(cv, false, i, customPortBw)) continue;
 
             ImVec2 p = driverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
@@ -1299,7 +1352,7 @@ int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriv
         if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
             int customPortBw = 1;
-            if (!isCustomPortStart(cv.typeName, true, i, customPortBw)) continue;
+            if (!isPortGroupStart(cv, true, i, customPortBw)) continue;
 
             ImVec2 p = receiverPos(cv, i);
             float dx = wp.x - p.x, dy = wp.y - p.y;
@@ -1458,6 +1511,18 @@ const char* Canvas::pinLabel(const std::string& type, bool isInput, int idx, int
             static const char* nb[] = {"0","1","2","3"};
             if (idx < 4) return nb[idx];
         }
+        if (type == "RGB_DISP") {
+            int cw = busWidth;
+            if (cw < 1) cw = 1;
+            if (idx % cw != 0) return "";
+            int channel = idx / cw;
+            static const char* ch[] = {"R", "G", "B"};
+            if (channel >= 3) return "";
+            if (cw == 1) return ch[channel];
+            static char buf[16];
+            std::snprintf(buf, sizeof(buf), "%s[%d]", ch[channel], cw);
+            return buf;
+        }
         if (type == "BUS_MERGE") {
             static char buf[8];
             std::snprintf(buf, sizeof(buf), "%d", idx);
@@ -1543,6 +1608,43 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
                                   : IM_COL32(55, 58, 72, 255);
     dl->AddRect(tl, br, borderCol, rounding, 0, cv.selected ? 2.5f : 1.5f);
 
+    // ── RGB color swatch ──
+    if (cv.typeName == "RGB_DISP") {
+        auto* rgb = static_cast<RGBDisplay*>(cv.comp.get());
+        float pad = 8.f * zoom;
+        ImVec2 innerTL = { tl.x + pad, tl.y + pad };
+        ImVec2 innerBR = { br.x - pad, br.y - pad };
+        float swatchRound = 4.f * zoom;
+
+        if (rgb->hasAmbiguity()) {
+            dl->AddRectFilled(innerTL, innerBR, IM_COL32(45, 45, 55, 255), swatchRound);
+            if (fontSize >= 8.f) {
+                ImVec2 ts = ImGui::CalcTextSize("?");
+                float sc = (fontSize * 1.2f) / ImGui::GetFontSize();
+                ImVec2 centre = { (innerTL.x + innerBR.x) * .5f, (innerTL.y + innerBR.y) * .5f };
+                dl->AddText(ImGui::GetFont(), fontSize * 1.2f,
+                            { centre.x - ts.x * sc * .5f, centre.y - ts.y * sc * .5f },
+                            IM_COL32(180, 180, 190, 220), "?");
+            }
+        } else {
+            uint32_t col = rgb->getColor();
+            dl->AddRectFilled(innerTL, innerBR,
+                IM_COL32((col >> 16) & 0xFF, (col >> 8) & 0xFF, col & 0xFF, 255), swatchRound);
+        }
+        dl->AddRect(innerTL, innerBR, IM_COL32(30, 30, 40, 200), swatchRound, 0, 1.f);
+
+        char hexBuf[16];
+        std::snprintf(hexBuf, sizeof(hexBuf), "#%06X",
+                      rgb->hasAmbiguity() ? 0u : (rgb->getColor() & 0xFFFFFFu));
+        if (fontSize >= 8.f) {
+            ImVec2 ts = ImGui::CalcTextSize(hexBuf);
+            float sc = (fontSize * 0.65f) / ImGui::GetFontSize();
+            dl->AddText(ImGui::GetFont(), fontSize * 0.65f,
+                        { innerBR.x - ts.x * sc - 2.f, innerBR.y - ts.y * sc - 2.f },
+                        IM_COL32(220, 220, 230, 200), hexBuf);
+        }
+    }
+
     // ── Label ──
     if (cv.typeName == "NUM_DISP") {
         auto* nd = static_cast<NumericDisplay*>(cv.comp.get());
@@ -1568,7 +1670,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
                         { centre.x - hs.x * hsc * .5f, centre.y + ts.y * sc * .4f },
                         IM_COL32(180, 180, 180, 200), hexBuf);
         }
-    } else if (fontSize >= 8.f) {
+    } else if (cv.typeName != "RGB_DISP" && fontSize >= 8.f) {
         ImVec2 centre = { (tl.x + br.x) * .5f, (tl.y + br.y) * .5f };
         std::string labelStr = cv.typeName;
         if (cv.typeName == "PORT_IN") {
@@ -1609,7 +1711,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         if ((cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT") && i > 0 && i < bw) continue;
         
         int customPortBw = 1;
-        if (!isCustomPortStart(cv.typeName, true, i, customPortBw)) continue;
+        if (!isPortGroupStart(cv, true, i, customPortBw)) continue;
         
         ImVec2 tip, edge;
         ImVec2 edgeW;
@@ -1683,7 +1785,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         if ((cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN") && i > 0) continue;
         
         int customPortBw = 1;
-        if (!isCustomPortStart(cv.typeName, false, i, customPortBw)) continue;
+        if (!isPortGroupStart(cv, false, i, customPortBw)) continue;
         
         ImVec2 tip, edge;
         ImVec2 edgeW;

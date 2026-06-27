@@ -253,4 +253,5 @@ private:
     
     // Helpers for custom component bus ports
     bool isCustomPortStart(const std::string& typeName, bool isInput, int pinIdx, int& outBusWidth) const;
+    bool isPortGroupStart(const ComponentView& cv, bool isInput, int pinIdx, int& outBusWidth) const;
 };

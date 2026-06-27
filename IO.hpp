@@ -201,6 +201,67 @@ public:
     void update() override {}
 };
 
+// ─── RGB Display: R/G/B inputs → colored rectangle ───────────────────────────
+class RGBDisplay : public Component
+{
+public:
+    explicit RGBDisplay(int channelWidth = 1)
+        : Component("RGB_DISP", channelWidth * 3, 0)
+    {
+        setBusWidth(channelWidth);
+    }
+
+    int getChannelValue(int channel) const
+    {
+        if (!getSimulator() || channel < 0 || channel > 2) return 0;
+        int w = getBusWidth();
+        int base = channel * w;
+        int v = 0;
+        for (int i = 0; i < w; ++i) {
+            if (readAsTrue(receivers[base + i]->getState(), *this))
+                v |= (1 << i);
+        }
+        return v;
+    }
+
+    bool hasAmbiguity() const
+    {
+        if (!getSimulator()) return true;
+        for (int i = 0; i < numReceivers(); ++i) {
+            State s = receivers[i]->getState();
+            if (!readAsTrue(s, *this) && !readAsFalse(s, *this))
+                return true;
+        }
+        return false;
+    }
+
+    uint32_t getColor() const
+    {
+        int w = getBusWidth();
+        int r = getChannelValue(0);
+        int g = getChannelValue(1);
+        int b = getChannelValue(2);
+        if (w == 1) {
+            r = r ? 255 : 0;
+            g = g ? 255 : 0;
+            b = b ? 255 : 0;
+        } else if (w == 4) {
+            r = (r & 0xF) * 17;
+            g = (g & 0xF) * 17;
+            b = (b & 0xF) * 17;
+        } else {
+            r &= 0xFF;
+            g &= 0xFF;
+            b &= 0xFF;
+        }
+        return (static_cast<uint32_t>(r) << 16) |
+               (static_cast<uint32_t>(g) << 8) |
+               static_cast<uint32_t>(b);
+    }
+
+    void update() override {}
+};
+
 // ─── Wire Junction (pass-through) ───────────────────────────────────────────
 class Junction : public Component
 {
