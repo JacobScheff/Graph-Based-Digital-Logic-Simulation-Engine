@@ -43,10 +43,15 @@ private:
         std::string label;
         int busWidth;
         int side = 0; // 0=L, 1=T, 2=R, 3=B
+        float t = 0.5f;
         int order = 0;
     };
     std::vector<PortUI> saveInPorts;
     std::vector<PortUI> saveOutPorts;
+    int savePreviewDragIdx = -1;
+    bool savePreviewDragIsInput = true;
+
+    void renderSaveCustomPreview();
 
     void tick(double dt);
     void renderFrame();

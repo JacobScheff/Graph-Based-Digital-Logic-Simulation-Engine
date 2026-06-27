@@ -47,7 +47,7 @@ void CustomComponent::registerInternals(Simulator* sim,
     // parent's customDefs so makeComponent can resolve them during deserialize.
     Canvas tempCanvas(sim);
     tempCanvas.customDefs = customDefs;
-    tempCanvas.deserialize(def.canvasJson, true);
+    tempCanvas.deserialize(def.canvasJson, Canvas::DeserializeMode::RestoreInternalOnly);
 
     // Steal all the instantiated components
     std::unordered_map<int, Component*> compMap;

@@ -46,6 +46,10 @@ bool App::loadCustomComponentFile(const std::string& filename) {
                 p.busWidth = jp.value("busWidth", 1);
                 p.side = jp.value("side", 0);
                 p.order = jp.value("order", 0);
+                if (jp.contains("t"))
+                    p.t = jp.value("t", 0.5f);
+                else
+                    p.t = -1.f;
                 def.inPorts.push_back(p);
             }
         }
@@ -57,6 +61,10 @@ bool App::loadCustomComponentFile(const std::string& filename) {
                 p.busWidth = jp.value("busWidth", 1);
                 p.side = jp.value("side", 0);
                 p.order = jp.value("order", 0);
+                if (jp.contains("t"))
+                    p.t = jp.value("t", 0.5f);
+                else
+                    p.t = -1.f;
                 def.outPorts.push_back(p);
             }
         }
@@ -65,6 +73,171 @@ bool App::loadCustomComponentFile(const std::string& filename) {
         return true;
     } catch (...) {}
     return false;
+}
+
+namespace {
+
+struct PreviewPinLayout {
+    int side = 0;
+    float t = 0.5f;
+};
+
+ImVec2 previewPinTip(ImVec2 boxMin, ImVec2 boxSize, int side, float t, float pinLen)
+{
+    float ct = std::clamp(t, 0.08f, 0.92f);
+    switch (side) {
+        case 0: return {boxMin.x - pinLen, boxMin.y + ct * boxSize.y};
+        case 1: return {boxMin.x + ct * boxSize.x, boxMin.y - pinLen};
+        case 2: return {boxMin.x + boxSize.x + pinLen, boxMin.y + ct * boxSize.y};
+        default: return {boxMin.x + ct * boxSize.x, boxMin.y + boxSize.y + pinLen};
+    }
+}
+
+ImVec2 previewPinEdge(ImVec2 boxMin, ImVec2 boxSize, int side, float t)
+{
+    float ct = std::clamp(t, 0.08f, 0.92f);
+    switch (side) {
+        case 0: return {boxMin.x, boxMin.y + ct * boxSize.y};
+        case 1: return {boxMin.x + ct * boxSize.x, boxMin.y};
+        case 2: return {boxMin.x + boxSize.x, boxMin.y + ct * boxSize.y};
+        default: return {boxMin.x + ct * boxSize.x, boxMin.y + boxSize.y};
+    }
+}
+
+PreviewPinLayout projectOntoPreviewBox(ImVec2 boxMin, ImVec2 boxSize, ImVec2 wp)
+{
+    float cx = boxMin.x + boxSize.x * 0.5f;
+    float cy = boxMin.y + boxSize.y * 0.5f;
+    float dx = wp.x - cx;
+    float dy = wp.y - cy;
+    float hw = boxSize.x * 0.5f;
+    float hh = boxSize.y * 0.5f;
+    float sx = (hw > 0.f) ? dx / hw : 0.f;
+    float sy = (hh > 0.f) ? dy / hh : 0.f;
+
+    PreviewPinLayout pl;
+    float margin = 0.08f;
+    auto clampT = [margin](float v) { return std::clamp(v, margin, 1.f - margin); };
+
+    if (std::fabs(sx) > std::fabs(sy)) {
+        if (sx < 0) {
+            pl.side = 0;
+            pl.t = clampT((wp.y - boxMin.y) / boxSize.y);
+        } else {
+            pl.side = 2;
+            pl.t = clampT((wp.y - boxMin.y) / boxSize.y);
+        }
+    } else {
+        if (sy < 0) {
+            pl.side = 1;
+            pl.t = clampT((wp.x - boxMin.x) / boxSize.x);
+        } else {
+            pl.side = 3;
+            pl.t = clampT((wp.x - boxMin.x) / boxSize.x);
+        }
+    }
+    return pl;
+}
+
+} // namespace
+
+void App::renderSaveCustomPreview()
+{
+    const float previewW = 320.f;
+    const float previewH = 220.f;
+    const float pad = 28.f;
+
+    saveCustomWidth = std::max(saveCustomWidth, 40);
+    saveCustomHeight = std::max(saveCustomHeight, 40);
+
+    ImVec2 cursor = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##save_preview", ImVec2(previewW, previewH));
+    bool hovered = ImGui::IsItemHovered();
+    ImVec2 mouse = ImGui::GetIO().MousePos;
+
+    float innerW = previewW - pad * 2.f;
+    float innerH = previewH - pad * 2.f;
+    float scale = std::min(innerW / float(saveCustomWidth), innerH / float(saveCustomHeight));
+    ImVec2 boxSize = { float(saveCustomWidth) * scale, float(saveCustomHeight) * scale };
+    ImVec2 boxMin = {
+        cursor.x + pad + (innerW - boxSize.x) * 0.5f,
+        cursor.y + pad + (innerH - boxSize.y) * 0.5f
+    };
+    ImVec2 boxMax = { boxMin.x + boxSize.x, boxMin.y + boxSize.y };
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(cursor, {cursor.x + previewW, cursor.y + previewH}, IM_COL32(18, 18, 26, 255), 4.f);
+    dl->AddRect(cursor, {cursor.x + previewW, cursor.y + previewH}, IM_COL32(55, 58, 75, 255), 4.f);
+    dl->AddRectFilled(boxMin, boxMax, IM_COL32(30, 32, 44, 255), 3.f);
+    dl->AddRect(boxMin, boxMax, IM_COL32(80, 190, 200, 180), 3.f);
+
+    const char* title = saveCustomName[0] ? saveCustomName : "Component";
+    ImVec2 ts = ImGui::CalcTextSize(title);
+    dl->AddText({boxMin.x + (boxSize.x - ts.x) * 0.5f, boxMin.y + (boxSize.y - ts.y) * 0.5f},
+                IM_COL32(200, 205, 220, 255), title);
+
+    char dimBuf[64];
+    std::snprintf(dimBuf, sizeof(dimBuf), "%d x %d", saveCustomWidth, saveCustomHeight);
+    ImVec2 ds = ImGui::CalcTextSize(dimBuf);
+    dl->AddText({cursor.x + (previewW - ds.x) * 0.5f, cursor.y + 6.f},
+                IM_COL32(130, 135, 155, 220), dimBuf);
+
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        savePreviewDragIdx = -1;
+        auto tryHit = [&](std::vector<PortUI>& ports, bool isInput) {
+            for (int i = 0; i < static_cast<int>(ports.size()); ++i) {
+                ImVec2 tip = previewPinTip(boxMin, boxSize, ports[i].side, ports[i].t, 14.f);
+                float dx = mouse.x - tip.x;
+                float dy = mouse.y - tip.y;
+                float rad = ports[i].busWidth > 1 ? 10.f : 8.f;
+                if (dx * dx + dy * dy <= rad * rad) {
+                    savePreviewDragIdx = i;
+                    savePreviewDragIsInput = isInput;
+                    return true;
+                }
+            }
+            return false;
+        };
+        if (!tryHit(saveInPorts, true))
+            tryHit(saveOutPorts, false);
+    }
+
+    if (savePreviewDragIdx >= 0 && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        auto& ports = savePreviewDragIsInput ? saveInPorts : saveOutPorts;
+        if (savePreviewDragIdx < static_cast<int>(ports.size())) {
+            PreviewPinLayout pl = projectOntoPreviewBox(boxMin, boxSize, mouse);
+            ports[savePreviewDragIdx].side = pl.side;
+            ports[savePreviewDragIdx].t = pl.t;
+        }
+    }
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        savePreviewDragIdx = -1;
+
+    auto drawPort = [&](const PortUI& p, ImU32 col) {
+        ImVec2 edge = previewPinEdge(boxMin, boxSize, p.side, p.t);
+        ImVec2 tip = previewPinTip(boxMin, boxSize, p.side, p.t, 14.f);
+        float lw = p.busWidth > 1 ? 4.f : 2.f;
+        dl->AddLine(edge, tip, col, lw);
+        dl->AddCircleFilled(tip, p.busWidth > 1 ? 7.f : 5.f, col);
+
+        char lbl[64];
+        if (p.busWidth > 1)
+            std::snprintf(lbl, sizeof(lbl), "%s [%d]", p.label.c_str(), p.busWidth);
+        else
+            std::snprintf(lbl, sizeof(lbl), "%s", p.label.c_str());
+        ImVec2 ls = ImGui::CalcTextSize(lbl);
+        ImVec2 lp;
+        if (p.side == 0) lp = {tip.x + 4.f, tip.y - ls.y * 0.5f};
+        else if (p.side == 2) lp = {tip.x - ls.x - 4.f, tip.y - ls.y * 0.5f};
+        else if (p.side == 1) lp = {tip.x - ls.x * 0.5f, tip.y + 4.f};
+        else lp = {tip.x - ls.x * 0.5f, tip.y - ls.y - 4.f};
+        dl->AddText(lp, IM_COL32(190, 195, 210, 230), lbl);
+    };
+
+    for (const auto& p : saveInPorts)
+        drawPort(p, IM_COL32(90, 170, 255, 255));
+    for (const auto& p : saveOutPorts)
+        drawPort(p, IM_COL32(90, 210, 120, 255));
 }
 
 void App::loadRegistry() {
@@ -298,28 +471,11 @@ void App::renderFrame()
         ImGui::InputText("Component Name", saveCustomName, sizeof(saveCustomName));
         ImGui::InputInt("Width", &saveCustomWidth);
         ImGui::InputInt("Height", &saveCustomHeight);
-        
-        ImGui::Separator();
-        ImGui::Text("Input Ports");
-        for (auto& p : saveInPorts) {
-            ImGui::PushID(p.id);
-            ImGui::Text("%s (%d-bit)", p.label.c_str(), p.busWidth);
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(100);
-            ImGui::Combo("Edge", &p.side, "Left\0Top\0Right\0Bottom\0");
-            ImGui::PopID();
-        }
 
-        ImGui::Separator();
-        ImGui::Text("Output Ports");
-        for (auto& p : saveOutPorts) {
-            ImGui::PushID(p.id);
-            ImGui::Text("%s (%d-bit)", p.label.c_str(), p.busWidth);
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(100);
-            ImGui::Combo("Edge", &p.side, "Left\0Top\0Right\0Bottom\0");
-            ImGui::PopID();
-        }
+        ImGui::Spacing();
+        ImGui::SeparatorText("Preview");
+        ImGui::TextDisabled("Drag ports along the edges to position them.");
+        renderSaveCustomPreview();
 
         ImGui::Spacing();
         if (ImGui::Button("Save", {88, 28})) {
@@ -335,7 +491,8 @@ void App::renderFrame()
                 cpd.label = p.label;
                 cpd.busWidth = p.busWidth;
                 cpd.side = p.side;
-                cpd.order = p.order; // We will just append them in order for now
+                cpd.t = p.t;
+                cpd.order = p.order;
                 def.inPorts.push_back(cpd);
             }
             for (auto& p : saveOutPorts) {
@@ -344,6 +501,7 @@ void App::renderFrame()
                 cpd.label = p.label;
                 cpd.busWidth = p.busWidth;
                 cpd.side = p.side;
+                cpd.t = p.t;
                 cpd.order = p.order;
                 def.outPorts.push_back(cpd);
             }
@@ -363,6 +521,7 @@ void App::renderFrame()
                     jp["label"] = p.label;
                     jp["busWidth"] = p.busWidth;
                     jp["side"] = p.side;
+                    jp["t"] = p.t;
                     jp["order"] = p.order;
                     arr.push_back(jp);
                 }
@@ -449,6 +608,47 @@ void App::renderMenuBar()
                     }
                 }
             }
+            auto applyExistingDef = [&](const CustomComponentDef& def) {
+                saveCustomWidth = static_cast<int>(def.width);
+                saveCustomHeight = static_cast<int>(def.height);
+                for (auto& p : saveInPorts) {
+                    for (const auto& cp : def.inPorts) {
+                        if (cp.internalCompId == p.id) {
+                            p.side = cp.side;
+                            if (cp.t >= 0.f) p.t = cp.t;
+                        }
+                    }
+                }
+                for (auto& p : saveOutPorts) {
+                    for (const auto& cp : def.outPorts) {
+                        if (cp.internalCompId == p.id) {
+                            p.side = cp.side;
+                            if (cp.t >= 0.f) p.t = cp.t;
+                        }
+                    }
+                }
+            };
+            bool loadedExisting = false;
+            if (!currentFilePath.empty() && saveCustomName[0] != '\0') {
+                auto it = canvas.customDefs.find(saveCustomName);
+                if (it != canvas.customDefs.end()) {
+                    applyExistingDef(it->second);
+                    loadedExisting = true;
+                }
+            }
+            if (!loadedExisting) {
+                auto initDefaults = [](std::vector<PortUI>& ports, int side) {
+                    int n = static_cast<int>(ports.size());
+                    for (int i = 0; i < n; ++i) {
+                        ports[i].side = side;
+                        ports[i].t = float(n - i) / float(n + 1);
+                        ports[i].order = i;
+                    }
+                };
+                initDefaults(saveInPorts, 0);
+                initDefaults(saveOutPorts, 2);
+            }
+            savePreviewDragIdx = -1;
         }
         if (ImGui::MenuItem("Load Custom Component")) {
             showLoadCustomPopup = true;
@@ -838,26 +1038,6 @@ void App::renderProperties()
             ImGui::Spacing();
             ImGui::TextDisabled("Click a component on the");
             ImGui::TextDisabled("canvas to inspect it here.");
-            ImGui::Spacing();
-            ImGui::SeparatorText("Power Rails");
-            ImGui::Spacing();
-            {
-                ImDrawList* dl = ImGui::GetWindowDrawList();
-                // VDD
-                ImVec2 cur = ImGui::GetCursorScreenPos();
-                dl->AddCircleFilled(ImVec2(cur.x + 12.f, cur.y + 7.f), 5.f, IM_COL32(76, 176, 80, 255));
-                ImGui::Indent(22.f);
-                ImGui::TextColored({0.30f,0.69f,0.31f,1.f}, "VDD: %s",
-                    stateLabel(sim.getVddNet()->getState(), sim));
-                ImGui::Unindent(22.f);
-                // GND
-                cur = ImGui::GetCursorScreenPos();
-                dl->AddCircleFilled(ImVec2(cur.x + 12.f, cur.y + 7.f), 5.f, IM_COL32(64, 140, 230, 255));
-                ImGui::Indent(22.f);
-                ImGui::TextColored({0.25f,0.55f,0.90f,1.f}, "GND: %s",
-                    stateLabel(sim.getGndNet()->getState(), sim));
-                ImGui::Unindent(22.f);
-            }
         }
         ImGui::End();
         return;
