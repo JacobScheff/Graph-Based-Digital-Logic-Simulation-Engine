@@ -12,8 +12,9 @@ static bool componentHasPowerPins(const Component& comp)
 {
     const std::string& type = comp.getName();
     if (type == "SW" || type == "BTN" || type == "LED" || 
-        type == "NUM_IN" || type == "NUM_DISP" || type == "JUNCTION" || 
-        type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG")
+        type == "NUM_IN" || type == "NUM_DISP" || type == "RGB_DISP" ||
+        type == "JUNCTION" || type == "BUS_MERGE" || type == "BUS_SPLIT" ||
+        type == "REG")
         return false;
     return true;
 }
