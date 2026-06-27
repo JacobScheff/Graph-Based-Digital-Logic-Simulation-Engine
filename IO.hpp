@@ -149,11 +149,11 @@ public:
         value = v & 0xF;
         if (!getSimulator()) {
             for (int i = 0; i < 4; ++i)
-                drivers[i]->setState(((value >> (3 - i)) & 1) ? State::HIGH : State::LOW);
+                drivers[i]->setState(((value >> i) & 1) ? State::HIGH : State::LOW);
             return;
         }
         for (int i = 0; i < 4; ++i) {
-            bool bit = (value >> (3 - i)) & 1;
+            bool bit = (value >> i) & 1;
             drivers[i]->setState(bit ? driveTrue(*this) : driveFalse(*this));
         }
     }
@@ -183,7 +183,7 @@ public:
         int v = 0;
         for (int i = 0; i < 4; ++i)
             if (readAsTrue(receivers[i]->getState(), *this))
-                v |= (8 >> i);
+                v |= (1 << i);
         return v;
     }
 
