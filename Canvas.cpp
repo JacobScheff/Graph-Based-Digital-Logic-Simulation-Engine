@@ -1620,8 +1620,7 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     if (cv.typeName == "RGB_DISP") {
         auto* rgb = static_cast<RGBDisplay*>(cv.comp.get());
         float pad = 8.f * zoom;
-        float labelCol = 14.f * zoom;
-        ImVec2 innerTL = { tl.x + pad + labelCol, tl.y + pad };
+        ImVec2 innerTL = { tl.x + pad, tl.y + pad };
         ImVec2 innerBR = { br.x - pad, br.y - pad };
         float swatchRound = 4.f * zoom;
 
@@ -1651,16 +1650,6 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             dl->AddText(ImGui::GetFont(), fontSize * 0.65f,
                         { innerBR.x - ts.x * sc - 2.f, innerBR.y - ts.y * sc - 2.f },
                         IM_COL32(220, 220, 230, 200), hexBuf);
-        }
-
-        float labelSize = fontSize * 0.75f;
-        float labelScale = labelSize / ImGui::GetFontSize();
-        for (int c = 0; c < 3; ++c) {
-            ImVec2 ts = ImGui::CalcTextSize(kRgbChannelNames[c]);
-            float y = tl.y + kRgbChannelT[c] * (br.y - tl.y);
-            dl->AddText(ImGui::GetFont(), labelSize,
-                        { tl.x + pad, y - ts.y * labelScale * 0.5f },
-                        kRgbChannelLabelColors[c], kRgbChannelNames[c]);
         }
     }
 
@@ -1793,8 +1782,13 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
             } else {
                 textPos = { edge.x - ts.x * sc * 0.5f, edge.y - ts.y * sc - 3.f * zoom };
             }
-            dl->AddText(ImGui::GetFont(), fontSize * .75f, textPos,
-                        IM_COL32(160,165,180,220), lbl);
+            ImU32 labelCol = IM_COL32(160, 165, 180, 220);
+            if (cv.typeName == "RGB_DISP") {
+                int channel = i / std::max(1, bw);
+                if (channel >= 0 && channel < 3)
+                    labelCol = kRgbChannelLabelColors[channel];
+            }
+            dl->AddText(ImGui::GetFont(), fontSize * .75f, textPos, labelCol, lbl);
         }
     }
 
