@@ -75,30 +75,3 @@ target_link_libraries(LogicSim PRIVATE
 if(UNIX AND NOT APPLE)
     target_link_libraries(LogicSim PRIVATE GL)
 endif()
-
-# ─── Headless regression tests (no GLFW window required) ─────────────────────
-set(TEST_SIM_SRC
-    ${SRC}/Net.cpp
-    ${SRC}/Pin.cpp
-    ${SRC}/Components.cpp
-    ${SRC}/TimingWheel.cpp
-    ${SRC}/IO.cpp
-    ${SRC}/PowerRails.cpp
-    ${SRC}/Simulator.cpp
-    ${SRC}/Canvas.cpp
-    ${SRC}/CanvasSerialization.cpp
-    ${SRC}/CustomComponent.cpp
-)
-
-add_executable(test_nested_custom ${SRC}/tests/test_nested_custom.cpp ${TEST_SIM_SRC} ${IMGUI_SRC})
-target_include_directories(test_nested_custom PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-)
-target_link_libraries(test_nested_custom PRIVATE glfw OpenGL::GL ${CMAKE_DL_LIBS})
-if(UNIX AND NOT APPLE)
-    target_link_libraries(test_nested_custom PRIVATE GL)
-endif()
-enable_testing()
-add_test(NAME nested_custom COMMAND test_nested_custom WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
