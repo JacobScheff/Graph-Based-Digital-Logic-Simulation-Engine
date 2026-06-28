@@ -55,6 +55,7 @@ public:
 
     void step(int n = 1);
     void settle(int maxTicks = 512);
+    void settleCombinational(int maxPasses = 128);
     void update(double deltaTime);
 
     void  setTicksPerSecond(double tps) { ticksPerSecond = tps; }

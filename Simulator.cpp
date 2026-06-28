@@ -178,6 +178,32 @@ void Simulator::settle(int maxTicks)
 {
     for (int i = 0; i < maxTicks && wheel.hasPendingEvents(); ++i)
         wheel.tick();
+    settleCombinational();
+}
+
+void Simulator::settleCombinational(int maxPasses)
+{
+    for (int pass = 0; pass < maxPasses; ++pass) {
+        bool changed = false;
+        for (Component* c : components) {
+            if (c == vddSource.get() || c == gndSource.get()) continue;
+
+            std::vector<std::pair<Driver*, State>> before;
+            before.reserve(c->numDrivers());
+            for (int i = 0; i < c->numDrivers(); ++i)
+                before.emplace_back(c->getDriver(i), c->getDriver(i)->getState());
+
+            c->update();
+
+            for (const auto& [drv, oldState] : before) {
+                if (drv->getState() != oldState) {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (!changed) break;
+    }
 }
 
 void Simulator::update(double deltaTime)

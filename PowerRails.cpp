@@ -75,6 +75,28 @@ State resolveXorRail(State a, State b, const Component& comp)
         return (a1 != b1) ? driveTrue(comp) : driveFalse(comp);
     }
     if (a == State::UNDEFINED || b == State::UNDEFINED) return State::UNDEFINED;
+
+    // One input is defined and the other is still floating. This happens in
+    // cross-coupled XNOR latch feedback before the loop converges. Resolve
+    // using the defined input and assume the floating side is low so feedback
+    // can reach a stable state instead of staying gray forever.
+    if (b0 && !b1) {
+        if (a1) return driveTrue(comp);
+        return driveFalse(comp);
+    }
+    if (b1 && !b0) {
+        if (a1) return driveFalse(comp);
+        return driveTrue(comp);
+    }
+    if (a0 && !a1) {
+        if (b1) return driveTrue(comp);
+        return driveTrue(comp);
+    }
+    if (a1 && !a0) {
+        if (b1) return driveFalse(comp);
+        return driveFalse(comp);
+    }
+
     return State::FLOATING;
 }
 
