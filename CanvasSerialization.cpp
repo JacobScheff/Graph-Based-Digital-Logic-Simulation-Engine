@@ -34,6 +34,9 @@ std::string Canvas::serialize() const
         } else if (cv.typeName == "BTN") {
             if (auto* b = dynamic_cast<Button*>(cv.comp.get()))
                 jc["state"] = b->isPressed();
+        } else if (cv.typeName == "NUM_IN") {
+            if (auto* ni = dynamic_cast<NumericInput*>(cv.comp.get()))
+                jc["value"] = ni->getValue();
         }
 
         // Serialize PinLayout
@@ -132,10 +135,12 @@ void Canvas::deserialize(const std::string& data, DeserializeMode mode)
                 cv.typeName = jc["typeName"].get<std::string>();
                 cv.pos = { jc["pos_x"].get<float>(), jc["pos_y"].get<float>() };
                 cv.size = { jc["size_x"].get<float>(), jc["size_y"].get<float>() };
-                cv.busWidth = jc.value("busWidth", 1);
+                cv.busWidth = jc.value("busWidth",
+                    (cv.typeName == "NUM_IN" || cv.typeName == "NUM_DISP") ? 4 : 1);
                 
                 cv.comp = makeComponent(cv.typeName, cv.busWidth);
                 if (!cv.comp) continue;
+                cv.comp->setBusWidth(cv.busWidth);
                 
                 if (cv.typeName == "PORT_IN") {
                     if (auto* p = dynamic_cast<PortIn*>(cv.comp.get()))
@@ -161,6 +166,9 @@ void Canvas::deserialize(const std::string& data, DeserializeMode mode)
                                 b->release();
                             }
                         }
+                    } else if (cv.typeName == "NUM_IN") {
+                        if (auto* ni = dynamic_cast<NumericInput*>(cv.comp.get()))
+                            ni->setValue(jc.value("value", 0));
                     }
                 }
                 
@@ -184,7 +192,7 @@ void Canvas::deserialize(const std::string& data, DeserializeMode mode)
                 
                 // If layouts were missing (old save), initialize defaults.
                 // RGB displays always use a fixed left-side pin layout.
-                if (cv.typeName == "RGB_DISP" ||
+                if (cv.typeName == "RGB_DISP" || cv.typeName == "NUM_IN" || cv.typeName == "NUM_DISP" ||
                     cv.receiverLayout.empty() || cv.driverLayout.empty()) {
                     initPinLayouts(cv);
                 }

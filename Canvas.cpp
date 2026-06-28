@@ -75,6 +75,68 @@ ImU32 Canvas::stateColor(State s) const
     return IM_COL32(255,255,255,255);
 }
 
+ImU32 Canvas::busAggregateColor(const ComponentView& cv, int pinStart, int width, bool isDriver) const
+{
+    bool anyTrue = false;
+    bool anyFalse = false;
+    bool anyUndef = false;
+
+    for (int b = 0; b < width; ++b) {
+        State bs = isDriver
+            ? cv.comp->getDriver(pinStart + b)->getState()
+            : cv.comp->getReceiver(pinStart + b)->getState();
+
+        if (bs == State::UNDEFINED) {
+            anyUndef = true;
+            continue;
+        }
+        if (sim) {
+            if (readAsTrue(bs, *sim))       anyTrue = true;
+            else if (readAsFalse(bs, *sim)) anyFalse = true;
+        } else {
+            if (bs == State::HIGH) anyTrue = true;
+            else if (bs == State::LOW)  anyFalse = true;
+        }
+    }
+
+    if (anyUndef) return stateColor(State::UNDEFINED);
+    if (anyTrue && anyFalse) return IM_COL32(200, 100, 200, 255);
+    if (anyTrue) return stateColor(State::HIGH);
+    if (anyFalse) return stateColor(State::LOW);
+    return stateColor(State::FLOATING);
+}
+
+ImU32 Canvas::busWireColor(const std::vector<Net*>& busNets) const
+{
+    if (busNets.empty()) return stateColor(State::FLOATING);
+
+    bool anyTrue = false;
+    bool anyFalse = false;
+    bool anyUndef = false;
+
+    for (Net* n : busNets) {
+        if (!n) continue;
+        State s = n->getState();
+        if (s == State::UNDEFINED) {
+            anyUndef = true;
+            continue;
+        }
+        if (sim) {
+            if (readAsTrue(s, *sim))       anyTrue = true;
+            else if (readAsFalse(s, *sim)) anyFalse = true;
+        } else {
+            if (s == State::HIGH) anyTrue = true;
+            else if (s == State::LOW)  anyFalse = true;
+        }
+    }
+
+    if (anyUndef) return stateColor(State::UNDEFINED);
+    if (anyTrue && anyFalse) return IM_COL32(200, 100, 200, 255);
+    if (anyTrue) return stateColor(State::HIGH);
+    if (anyFalse) return stateColor(State::LOW);
+    return stateColor(State::FLOATING);
+}
+
 ImVec2 Canvas::railEndpointWorld(bool isVdd, float worldX,
                                  ImVec2 origin, ImVec2 canvasSize) const
 {
@@ -218,6 +280,17 @@ void Canvas::initPinLayouts(ComponentView& cv)
                 cv.receiverLayout[c * cw + b] = pl;
             }
         }
+        cv.driverLayout.clear();
+        return;
+    }
+
+    if (cv.typeName == "NUM_IN") {
+        cv.receiverLayout.clear();
+        cv.driverLayout = {{2, 0.5f}};
+        return;
+    }
+    if (cv.typeName == "NUM_DISP") {
+        cv.receiverLayout = {{0, 0.5f}};
         cv.driverLayout.clear();
         return;
     }
@@ -446,6 +519,14 @@ ImVec2 Canvas::endpointPos(const Endpoint& ep, ImVec2 origin, ImVec2 canvasSize)
         case EndpointKind::Component: {
             const auto* cv = findComp(ep.compId);
             if (!cv) return {0, 0};
+            if (ep.kind == EndpointKind::Component && ep.pinIdx >= 0) {
+                if (hasConsolidatedBusDriver(*cv) && ep.isDriver &&
+                    ep.pinIdx >= 0 && ep.pinIdx < cv->busWidth)
+                    return busDriverPos(*cv);
+                if (hasConsolidatedBusReceiver(*cv) && !ep.isDriver &&
+                    ep.pinIdx >= 0 && ep.pinIdx < cv->busWidth)
+                    return busReceiverPos(*cv);
+            }
             if (isBusComponent(cv->typeName) && ep.pinIdx == 0) {
                 if ((cv->typeName == "BUS_MERGE" || cv->typeName == "REG" || cv->typeName == "PORT_IN") && ep.isDriver)
                     return busDriverPos(*cv);
@@ -475,15 +556,27 @@ ImVec2 Canvas::endpointPos(const Endpoint& ep, ImVec2 origin, ImVec2 canvasSize)
 
 bool Canvas::isBusComponent(const std::string& type) const
 {
-    return type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG" || type == "PORT_IN" || type == "PORT_OUT";
+    return type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG"
+        || type == "PORT_IN" || type == "PORT_OUT"
+        || type == "NUM_IN" || type == "NUM_DISP";
+}
+
+bool Canvas::hasConsolidatedBusDriver(const ComponentView& cv) const
+{
+    return cv.typeName == "BUS_MERGE" || cv.typeName == "REG"
+        || cv.typeName == "PORT_IN" || cv.typeName == "NUM_IN";
+}
+
+bool Canvas::hasConsolidatedBusReceiver(const ComponentView& cv) const
+{
+    return cv.typeName == "BUS_SPLIT" || cv.typeName == "REG"
+        || cv.typeName == "PORT_OUT" || cv.typeName == "NUM_DISP";
 }
 
 int Canvas::componentBusWidth(const ComponentView& cv) const
 {
-    if (isBusComponent(cv.typeName))
+    if (isBusComponent(cv.typeName) || cv.typeName == "NUM_IN" || cv.typeName == "NUM_DISP")
         return cv.busWidth;
-    if (cv.typeName == "NUM_IN" || cv.typeName == "NUM_DISP")
-        return 4;
     if (cv.typeName == "RGB_DISP")
         return cv.busWidth;
     return 1;
@@ -513,6 +606,16 @@ bool Canvas::isCustomPortStart(const std::string& typeName, bool isInput, int pi
 
 bool Canvas::isPortGroupStart(const ComponentView& cv, bool isInput, int pinIdx, int& outBusWidth) const
 {
+    if (cv.typeName == "NUM_IN" && !isInput) {
+        if (pinIdx == 0) { outBusWidth = cv.busWidth; return true; }
+        if (pinIdx > 0 && pinIdx < cv.busWidth) { outBusWidth = -1; return false; }
+        return false;
+    }
+    if (cv.typeName == "NUM_DISP" && isInput) {
+        if (pinIdx == 0) { outBusWidth = cv.busWidth; return true; }
+        if (pinIdx > 0 && pinIdx < cv.busWidth) { outBusWidth = -1; return false; }
+        return false;
+    }
     if (cv.typeName == "RGB_DISP" && isInput) {
         int cw = cv.busWidth;
         if (pinIdx == 0 || pinIdx == cw || pinIdx == 2 * cw) {
@@ -542,8 +645,8 @@ std::unique_ptr<Component> Canvas::makeComponent(const std::string& type, int bu
     if (type == "BTN")      return std::make_unique<Button>();
     if (type == "CLK")      return std::make_unique<Clock>(10);
     if (type == "LED")      return std::make_unique<LED>();
-    if (type == "NUM_IN")   return std::make_unique<NumericInput>();
-    if (type == "NUM_DISP") return std::make_unique<NumericDisplay>();
+    if (type == "NUM_IN")   return std::make_unique<NumericInput>(busWidth);
+    if (type == "NUM_DISP") return std::make_unique<NumericDisplay>(busWidth);
     if (type == "RGB_DISP") return std::make_unique<RGBDisplay>(busWidth);
     if (type == "JUNCTION") return std::make_unique<Junction>();
     if (type == "BUS_MERGE") return std::make_unique<BusMerge>(busWidth);
@@ -584,9 +687,9 @@ ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth) const
         numDrivers = 0;
     } else if (type == "NUM_IN") {
         numReceivers = 0;
-        numDrivers = 4;
+        numDrivers = busWidth;
     } else if (type == "NUM_DISP") {
-        numReceivers = 4;
+        numReceivers = busWidth;
         numDrivers = 0;
     } else if (type == "RGB_DISP") {
         numReceivers = busWidth * 3;
@@ -615,6 +718,9 @@ ImVec2 Canvas::getComponentSize(const std::string& type, int busWidth) const
     
     int maxPins = std::max(numReceivers, numDrivers);
     float h = std::max(50.f, float(maxPins + 1) * PIN_SPACE);
+    if (type == "NUM_IN" || type == "NUM_DISP") {
+        return { COMP_W, 50.f };
+    }
     if (type == "RGB_DISP") {
         h = std::max(90.f, 4.f * PIN_SPACE);
         return { COMP_W + 10.f, h };
@@ -707,6 +813,14 @@ int Canvas::getAvailablePortWidth(const ComponentView* cv, int pinIdx, bool isIn
     }
     if (cv->typeName == "PORT_IN" || cv->typeName == "PORT_OUT") {
         if (pinIdx == 0) return cv->busWidth;
+        return 1;
+    }
+    if (cv->typeName == "NUM_IN") {
+        if (!isInput && pinIdx == 0) return cv->busWidth;
+        return 1;
+    }
+    if (cv->typeName == "NUM_DISP") {
+        if (isInput && pinIdx == 0) return cv->busWidth;
         return 1;
     }
 
@@ -1224,7 +1338,7 @@ int Canvas::hitComp(ImVec2 wp) const
 int Canvas::hitDriverPin(ImVec2 wp, int& outId, bool busSide) const
 {
     for (const auto& cv : comps) {
-        if (busSide && isBusComponent(cv.typeName)) {
+        if (busSide && hasConsolidatedBusDriver(cv)) {
             ImVec2 p = busDriverPos(cv);
             float dx = wp.x - p.x, dy = wp.y - p.y;
             if (dx*dx + dy*dy <= (PIN_RAD+6)*(PIN_RAD+6)) {
@@ -1232,7 +1346,7 @@ int Canvas::hitDriverPin(ImVec2 wp, int& outId, bool busSide) const
                 return 0;
             }
         }
-        if (!busSide && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
+        if (!busSide && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "NUM_IN" || cv.typeName == "PORT_OUT")) continue;
         if (cv.typeName == "PORT_OUT") continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
             int customPortBw = 1;
@@ -1259,7 +1373,7 @@ int Canvas::hitDriverPin(ImVec2 wp, int& outId, bool busSide) const
 int Canvas::hitReceiverPin(ImVec2 wp, int& outId, bool busSide) const
 {
     for (const auto& cv : comps) {
-        if (busSide && isBusComponent(cv.typeName)) {
+        if (busSide && hasConsolidatedBusReceiver(cv)) {
             ImVec2 p = busReceiverPos(cv);
             float dx = wp.x - p.x, dy = wp.y - p.y;
             if (dx*dx + dy*dy <= (PIN_RAD+6)*(PIN_RAD+6)) {
@@ -1267,7 +1381,7 @@ int Canvas::hitReceiverPin(ImVec2 wp, int& outId, bool busSide) const
                 return 0;
             }
         }
-        if (!busSide && (cv.typeName == "BUS_SPLIT" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
+        if (!busSide && (cv.typeName == "BUS_SPLIT" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT" || cv.typeName == "NUM_DISP")) continue;
         if (cv.typeName == "PORT_IN") continue;
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
             int customPortBw = 1;
@@ -1355,9 +1469,9 @@ int Canvas::hitWaypoint(ImVec2 wp, ImVec2 origin, ImVec2 size, int& outWaypointI
 
 int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriver) const
 {
-    // Check bus driver pins first (REG, BUS_MERGE, PORT_IN, PORT_OUT)
+    // Check bus driver pins first
     for (const auto& cv : comps) {
-        if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN")) {
+        if (hasConsolidatedBusDriver(cv)) {
             ImVec2 p = busDriverPos(cv);
             float dx = wp.x - p.x, dy = wp.y - p.y;
             if (dx*dx + dy*dy <= (PIN_RAD+6)*(PIN_RAD+6)) {
@@ -1368,9 +1482,9 @@ int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriv
             }
         }
     }
-    // Check bus receiver pins first (BUS_SPLIT, REG, PORT_OUT)
+    // Check bus receiver pins first
     for (const auto& cv : comps) {
-        if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT")) {
+        if (hasConsolidatedBusReceiver(cv)) {
             ImVec2 p = busReceiverPos(cv);
             float dx = wp.x - p.x, dy = wp.y - p.y;
             if (dx*dx + dy*dy <= (PIN_RAD+6)*(PIN_RAD+6)) {
@@ -1383,7 +1497,7 @@ int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriv
     }
     // Check individual driver pins
     for (const auto& cv : comps) {
-        if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
+        if (hasConsolidatedBusDriver(cv) || (cv.typeName == "PORT_OUT")) continue;
         for (int i = 0; i < cv.comp->numDrivers(); ++i) {
             int customPortBw = 1;
             if (!isPortGroupStart(cv, false, i, customPortBw)) continue;
@@ -1401,7 +1515,7 @@ int Canvas::hitAnyPin(ImVec2 wp, int& outCompId, int& outPinIdx, bool& outIsDriv
     }
     // Check individual receiver pins
     for (const auto& cv : comps) {
-        if (isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "PORT_IN" || cv.typeName == "PORT_OUT")) continue;
+        if (hasConsolidatedBusReceiver(cv) || cv.typeName == "PORT_IN") continue;
         for (int i = 0; i < cv.comp->numReceivers(); ++i) {
             int customPortBw = 1;
             if (!isPortGroupStart(cv, true, i, customPortBw)) continue;
@@ -1442,7 +1556,7 @@ bool Canvas::tryHandleComponentClick(int compId, bool mouseDown, bool mouseUp)
     }
     if (cv->typeName == "NUM_IN" && mouseUp) {
         auto* ni = static_cast<NumericInput*>(cv->comp.get());
-        ni->setValue((ni->getValue() + 1) & 0xF);
+        ni->setValue(static_cast<int>((ni->getValue() + 1) & ni->valueMask()));
         sim->settle();
         return true;
     }
@@ -1463,9 +1577,10 @@ void Canvas::handleScrollOnComponent(int compId, float scroll)
     
     if (cv->typeName == "NUM_IN") {
         auto* ni = static_cast<NumericInput*>(cv->comp.get());
-        int v = ni->getValue();
-        v = scroll > 0 ? (v + 1) & 0xF : (v - 1) & 0xF;
-        ni->setValue(v);
+        uint64_t mask = ni->valueMask();
+        uint64_t v = ni->getValue();
+        v = scroll > 0 ? (v + 1) & mask : (v - 1) & mask;
+        ni->setValue(static_cast<int>(v));
         sim->settle();
     } else if (cv->typeName == "PORT_IN") {
         auto* pi = static_cast<PortIn*>(cv->comp.get());
@@ -1560,8 +1675,12 @@ const char* Canvas::pinLabel(const std::string& type, bool isInput, int idx, int
             if (idx == 0) return "A";
         }
         if (type == "NUM_DISP") {
-            static const char* nb[] = {"0","1","2","3"};
-            if (idx < 4) return nb[idx];
+            if (idx == 0) {
+                static char buf[16];
+                std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
+                return buf;
+            }
+            return "";
         }
         if (type == "RGB_DISP") {
             int cw = busWidth;
@@ -1611,8 +1730,12 @@ const char* Canvas::pinLabel(const std::string& type, bool isInput, int idx, int
             return buf;
         }
         if (type == "NUM_IN") {
-            static const char* nb[] = {"0","1","2","3"};
-            if (idx < 4) return nb[idx];
+            if (idx == 0) {
+                static char buf[16];
+                std::snprintf(buf, sizeof(buf), "[%d]", busWidth);
+                return buf;
+            }
+            return "";
         }
         if (type == "BUS_MERGE") {
             static char buf[16];
@@ -1724,9 +1847,11 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         if (nd->hasAmbiguity())
             std::snprintf(valBuf, sizeof(valBuf), "?");
         else
-            std::snprintf(valBuf, sizeof(valBuf), "%d", nd->getValue());
-        char hexBuf[16];
-        std::snprintf(hexBuf, sizeof(hexBuf), "0x%X", nd->hasAmbiguity() ? 0 : nd->getValue());
+            std::snprintf(valBuf, sizeof(valBuf), "%llu",
+                          static_cast<unsigned long long>(nd->getValue()));
+        char hexBuf[24];
+        std::snprintf(hexBuf, sizeof(hexBuf), "0x%llX",
+                      static_cast<unsigned long long>(nd->hasAmbiguity() ? 0 : nd->getValue()));
 
         float bigSize = 22.f * zoom;
         ImVec2 ts = ImGui::CalcTextSize(valBuf);
@@ -1783,14 +1908,14 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     // ── Draw receiver (input) pins ──
     for (int i = 0; i < cv.comp->numReceivers(); ++i) {
         if (cv.typeName == "PORT_IN") break;
-        if ((cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT") && i > 0 && i < bw) continue;
+        if ((cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT" || cv.typeName == "NUM_DISP") && i > 0 && i < bw) continue;
         
         int customPortBw = 1;
         if (!isPortGroupStart(cv, true, i, customPortBw)) continue;
         
         ImVec2 tip, edge;
         ImVec2 edgeW;
-        if (isBusComponent(cv.typeName) && i == 0 && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG")) {
+        if (i == 0 && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT" || cv.typeName == "NUM_DISP")) {
             edgeW = {cv.pos.x, busReceiverPos(cv).y};
             tip  = w2s(busReceiverPos(cv), origin);
             edge = w2s(edgeW, origin);
@@ -1802,26 +1927,12 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         State st  = cv.comp->getReceiver(i)->getState();
         ImU32 col = stateColor(st);
         
-        bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT") && i == 0) || customPortBw > 1);
+        bool isBusDraw = ((i == 0 && (cv.typeName == "BUS_SPLIT" || cv.typeName == "REG" || cv.typeName == "PORT_OUT" || cv.typeName == "NUM_DISP")) || customPortBw > 1);
         float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
 
         if (isBusDraw) {
-            bool anyTrue = false;
-            bool anyFalse = false;
             int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
-            for (int b = 0; b < bw; ++b) {
-                State bs = cv.comp->getReceiver(i + b)->getState();
-                if (sim) {
-                    if (readAsTrue(bs, *sim))  anyTrue = true;
-                    if (readAsFalse(bs, *sim)) anyFalse = true;
-                } else {
-                    if (bs == State::HIGH) anyTrue = true;
-                    if (bs == State::LOW)  anyFalse = true;
-                }
-            }
-            if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
-            else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
-            else if (anyTrue && anyFalse) col = IM_COL32(200, 100, 200, 255);
+            col = busAggregateColor(cv, i, bw, false);
         }
 
         dl->AddLine(edge, tip, col, lw);
@@ -1862,14 +1973,14 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     // ── Draw driver (output) pins ──
     for (int i = 0; i < cv.comp->numDrivers(); ++i) {
         if (cv.typeName == "PORT_OUT") break;
-        if ((cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN") && i > 0) continue;
+        if ((cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "NUM_IN") && i > 0) continue;
         
         int customPortBw = 1;
         if (!isPortGroupStart(cv, false, i, customPortBw)) continue;
         
         ImVec2 tip, edge;
         ImVec2 edgeW;
-        if (isBusComponent(cv.typeName) && i == 0 && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG")) {
+        if (i == 0 && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "NUM_IN")) {
             edgeW = {cv.pos.x + cv.size.x, busDriverPos(cv).y};
             tip  = w2s(busDriverPos(cv), origin);
             edge = w2s(edgeW, origin);
@@ -1881,26 +1992,12 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         State st  = cv.comp->getDriver(i)->getState();
         ImU32 col = stateColor(st);
         
-        bool isBusDraw = ((isBusComponent(cv.typeName) && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN") && i == 0) || customPortBw > 1);
+        bool isBusDraw = ((i == 0 && (cv.typeName == "BUS_MERGE" || cv.typeName == "REG" || cv.typeName == "PORT_IN" || cv.typeName == "NUM_IN")) || customPortBw > 1);
         float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
 
         if (isBusDraw) {
-            bool anyTrue = false;
-            bool anyFalse = false;
             int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
-            for (int b = 0; b < bw; ++b) {
-                State bs = cv.comp->getDriver(i + b)->getState();
-                if (sim) {
-                    if (readAsTrue(bs, *sim))  anyTrue = true;
-                    if (readAsFalse(bs, *sim)) anyFalse = true;
-                } else {
-                    if (bs == State::HIGH) anyTrue = true;
-                    if (bs == State::LOW)  anyFalse = true;
-                }
-            }
-            if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
-            else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
-            else if (anyTrue && anyFalse) col = IM_COL32(200, 100, 200, 255);
+            col = busAggregateColor(cv, i, bw, true);
         }
 
         dl->AddLine(edge, tip, col, lw);
@@ -1950,8 +2047,9 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
     // ── Numeric input value ──
     if (cv.typeName == "NUM_IN" && fontSize >= 8.f) {
         auto* ni = static_cast<NumericInput*>(cv.comp.get());
-        char buf[8];
-        std::snprintf(buf, sizeof(buf), "%d", ni->getValue());
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), "%llu",
+                      static_cast<unsigned long long>(ni->getValue()));
         ImVec2 ts = ImGui::CalcTextSize(buf);
         float sc = fontSize / ImGui::GetFontSize();
         dl->AddText(ImGui::GetFont(), fontSize,
@@ -1983,6 +2081,38 @@ void Canvas::drawJunctions(ImDrawList* dl, ImVec2 origin, ImVec2 /*size*/) const
 
 // ─── Drawing: Wires ───────────────────────────────────────────────────────────
 
+void Canvas::drawBusSlash(ImDrawList* dl, ImVec2 a, ImVec2 b, int width, ImU32 col) const
+{
+    float dx = b.x - a.x;
+    float dy = b.y - a.y;
+    float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1.f) return;
+
+    float mx = (a.x + b.x) * 0.5f;
+    float my = (a.y + b.y) * 0.5f;
+    float ux = dx / len;
+    float uy = dy / len;
+    float px = -uy;
+    float py = ux;
+
+    float half = 9.f * zoom;
+    float along = 4.f * zoom;
+    ImVec2 c1 = { mx - px * half - ux * along, my - py * half - uy * along };
+    ImVec2 c2 = { mx + px * half + ux * along, my + py * half + uy * along };
+    dl->AddLine(c1, c2, IM_COL32(240, 240, 245, 230), std::max(2.f, 2.2f * zoom));
+
+    char lbl[12];
+    std::snprintf(lbl, sizeof(lbl), "%d", width);
+    ImVec2 ts = ImGui::CalcTextSize(lbl);
+    float labelSize = 10.f * zoom;
+    float sc = labelSize / ImGui::GetFontSize();
+    dl->AddText(ImGui::GetFont(), labelSize,
+                { mx + px * (half + 4.f * zoom) - ts.x * sc * 0.5f,
+                  my + py * (half + 4.f * zoom) - ts.y * sc * 0.5f },
+                IM_COL32(220, 220, 225, 220), lbl);
+    (void)col;
+}
+
 void Canvas::drawAllWires(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
 {
     for (const auto& wv : wires) {
@@ -1990,13 +2120,9 @@ void Canvas::drawAllWires(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
         ImVec2 dst = endpointPos(wv.dst, origin, size);
         auto pts   = routeWire(src, dst, wv.src, wv.dst, wv.waypoints);
 
-        State st = State::FLOATING;
-        if (wv.busWidth > 1 && !wv.busNets.empty())
-            st = wv.busNets[0]->getState();
-        else if (wv.net)
-            st = wv.net->getState();
-
-        ImU32 col = stateColor(st);
+        ImU32 col = (wv.busWidth > 1 && !wv.busNets.empty())
+            ? busWireColor(wv.busNets)
+            : stateColor(wv.net ? wv.net->getState() : State::FLOATING);
         float lw  = wv.busWidth > 1 ? 4.f * zoom : 2.5f * zoom;
 
         // Selection glow
@@ -2023,12 +2149,23 @@ void Canvas::drawAllWires(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
         // Source endpoint dot
         dl->AddCircleFilled(w2s(src, origin), 3.5f * zoom, col);
 
-        // Bus width label
+        // Bus slash + width label
         if (wv.busWidth > 1 && pts.size() >= 2) {
-            ImVec2 mid = w2s(pts[pts.size()/2], origin);
-            char lbl[8];
-            std::snprintf(lbl, sizeof(lbl), "%d", wv.busWidth);
-            dl->AddText({mid.x + 4.f, mid.y - 8.f}, IM_COL32(220, 220, 220, 200), lbl);
+            size_t bestSeg = 1;
+            float bestLen = 0.f;
+            for (size_t i = 1; i < pts.size(); ++i) {
+                float dx = pts[i].x - pts[i - 1].x;
+                float dy = pts[i].y - pts[i - 1].y;
+                float segLen = dx * dx + dy * dy;
+                if (segLen > bestLen) {
+                    bestLen = segLen;
+                    bestSeg = i;
+                }
+            }
+            drawBusSlash(dl,
+                         w2s(pts[bestSeg - 1], origin),
+                         w2s(pts[bestSeg], origin),
+                         wv.busWidth, col);
         }
 
         // ── Waypoint handles (only when zoomed in enough) ──
@@ -2378,10 +2515,10 @@ void Canvas::render()
                 auto* dstCv = findComp(compId);
                 auto* srcCv = wireSrc.kind == EndpointKind::Component
                               ? findComp(wireSrc.compId) : nullptr;
-                if (dstCv && (dstCv->typeName == "BUS_SPLIT" || dstCv->typeName == "REG") && pinIdx == 0)
-                    bw = dstCv->busWidth;
-                else if (srcCv && (srcCv->typeName == "BUS_MERGE" || srcCv->typeName == "REG"))
-                    bw = srcCv->busWidth;
+                if (dstCv)
+                    bw = std::max(bw, getAvailablePortWidth(dstCv, pinIdx, true));
+                if (srcCv && wireSrc.isDriver)
+                    bw = std::max(bw, getAvailablePortWidth(srcCv, wireSrc.pinIdx, false));
                 completeWire(wireSrc, dst, bw);
                 if (!wires.empty() && !currentWireWaypoints.empty()) wires.back().waypoints = currentWireWaypoints;
                 currentWireWaypoints.clear();

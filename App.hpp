@@ -26,6 +26,7 @@ private:
     bool   layoutInitialized = false;
 
     int         pendingBusWidth = 4;
+    int         customBusWidthInput = 4;
     bool        showBusWidthPopup = false;
     std::string pendingBusType;
 

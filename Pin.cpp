@@ -1,6 +1,6 @@
-#include "Pin.hpp"
-#include "Net.hpp"
+#include "Simulator.hpp"
 #include "Components.hpp"
+#include "Net.hpp"
 
 // ════════════════════════════════ Driver ═════════════════════════════════════
 
@@ -31,6 +31,13 @@ void Driver::disconnect()
 void Driver::setState(State newState)
 {
     if (newState == state) return;
+
+    Simulator* sim = owner ? owner->getSimulator() : nullptr;
+    if (sim && sim->isCombinatorialSettling()) {
+        sim->queueDriverState(this, newState);
+        return;
+    }
+
     State old = state;
     state = newState;
     if (net)
@@ -66,7 +73,11 @@ void Receiver::disconnect()
 
 State Receiver::getState() const
 {
-    return net ? net->getState() : State::FLOATING;
+    if (!net) return State::FLOATING;
+    Simulator* sim = owner ? owner->getSimulator() : nullptr;
+    if (sim && sim->isCombinatorialSettling())
+        return sim->getSettlingNetState(net);
+    return net->getState();
 }
 
 void Receiver::onNetChanged(State /*oldState*/, State /*newState*/)

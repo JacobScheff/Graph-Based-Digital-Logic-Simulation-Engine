@@ -504,27 +504,28 @@ void App::renderFrame()
             ImGui::PushStyleColor(ImGuiCol_Button,        IM_COL32(36, 36, 50, 255));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(55, 52, 140, 255));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  IM_COL32(75, 65, 210, 255));
-            if (ImGui::Button(label, {88, 32})) {
-                canvas.beginPlacement(pendingBusType, width);
-                ImGui::CloseCurrentPopup();
+            if (ImGui::Button(label, {64, 28})) {
+                customBusWidthInput = width;
             }
             ImGui::PopStyleColor(3);
         };
-        busBtn("1-bit", 1);
-        if (pendingBusType == "RGB_DISP") {
-            ImGui::SameLine();
-            busBtn("4-bit", 4);
-            ImGui::SameLine();
-            busBtn("8-bit", 8);
-        } else {
-            ImGui::SameLine();
-            busBtn("2-bit", 2);
-            ImGui::SameLine();
-            busBtn("4-bit", 4);
-            ImGui::SameLine();
-            busBtn("8-bit", 8);
-        }
+        busBtn("1", 1);
+        ImGui::SameLine(); busBtn("4", 4);
+        ImGui::SameLine(); busBtn("8", 8);
+        ImGui::SameLine(); busBtn("16", 16);
+        ImGui::SameLine(); busBtn("32", 32);
+        ImGui::SameLine(); busBtn("64", 64);
         ImGui::Spacing();
+        ImGui::SetNextItemWidth(120.f);
+        ImGui::InputInt("Custom width", &customBusWidthInput, 1, 4);
+        if (customBusWidthInput < 1) customBusWidthInput = 1;
+        if (customBusWidthInput > Canvas::MAX_BUS_WIDTH) customBusWidthInput = Canvas::MAX_BUS_WIDTH;
+        ImGui::Spacing();
+        if (ImGui::Button("Place", {88, 32})) {
+            canvas.beginPlacement(pendingBusType, customBusWidthInput);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
         if (ImGui::Button("Cancel", {88, 28}))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
@@ -927,6 +928,7 @@ void App::renderPalette()
 
         if (ImGui::Button(iconLabel, {-1.f, 30.f})) {
             pendingBusType = type;
+            customBusWidthInput = 4;
             showBusWidthPopup = true;
         }
 
@@ -974,7 +976,7 @@ void App::renderPalette()
         paletteBtn("Switch", "SW",     "Toggle switch (click on canvas)");
         paletteBtn("Button", "BTN",    "Momentary button (hold on canvas)");
         paletteBtn("Clock",  "CLK",    "Oscillator \xe2\x80\x93 freq set in Properties");
-        paletteBtn("Num In", "NUM_IN", "4-bit numeric input (click/scroll)");
+        busPaletteBtn("Num In", "NUM_IN", "N-bit numeric input bus (click/scroll on canvas)");
         ImGui::Spacing();
         ImGui::Unindent(4.f);
     }
@@ -995,8 +997,8 @@ void App::renderPalette()
         ImGui::Indent(4.f);
         ImGui::Spacing();
         paletteBtn("LED",      "LED",      "Single-bit LED indicator");
-        paletteBtn("Num Disp", "NUM_DISP", "4-bit numeric display (0\xe2\x80\x93" "15)");
-        busPaletteBtn("RGB Disp", "RGB_DISP", "RGB color display (1/4/8-bit per channel)");
+        busPaletteBtn("Num Disp", "NUM_DISP", "N-bit numeric display");
+        busPaletteBtn("RGB Disp", "RGB_DISP", "RGB color display (custom channel width)");
         ImGui::Spacing();
         ImGui::Unindent(4.f);
     }
@@ -1220,19 +1222,32 @@ void App::renderProperties()
 
     if (type == "NUM_IN") {
         auto* ni = static_cast<NumericInput*>(comp);
-        int   v  = ni->getValue();
-        if (ImGui::SliderInt("Value##ni", &v, 0, 15)) {
+        int   bw = ni->getBusWidth();
+        uint64_t maxV = ni->valueMask();
+        int   v  = static_cast<int>(ni->getValue());
+        if (ImGui::SliderInt("Value##ni", &v, 0, static_cast<int>(maxV))) {
             ni->setValue(v);
             canvas.settle();
         }
-        ImGui::Text("Binary: %d%d%d%d",
-            (v>>3)&1, (v>>2)&1, (v>>1)&1, v&1);
+        if (bw <= 8) {
+            ImGui::Text("Binary:");
+            ImGui::SameLine();
+            for (int b = bw - 1; b >= 0; --b)
+                ImGui::Text("%d", (v >> b) & 1);
+        } else {
+            ImGui::Text("Hex: 0x%llX", static_cast<unsigned long long>(ni->getValue()));
+        }
+        ImGui::Text("Bus width: %d bits", bw);
         ImGui::TextDisabled("Click/scroll on canvas");
     }
 
     if (type == "NUM_DISP") {
         auto* nd = static_cast<NumericDisplay*>(comp);
-        ImGui::Text("Value: %d  (0x%X)", nd->getValue(), nd->getValue());
+        int bw = nd->getBusWidth();
+        ImGui::Text("Value: %llu  (0x%llX)",
+                    static_cast<unsigned long long>(nd->getValue()),
+                    static_cast<unsigned long long>(nd->getValue()));
+        ImGui::Text("Bus width: %d bits", bw);
         if (nd->hasAmbiguity())
             ImGui::TextColored({1.f,0.45f,0.4f,1.f}, "  (ambiguous input)");
     }
@@ -1277,7 +1292,8 @@ void App::renderProperties()
         }
     }
 
-    if (type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG") {
+    if (type == "BUS_MERGE" || type == "BUS_SPLIT" || type == "REG"
+        || type == "NUM_IN" || type == "NUM_DISP") {
         int bw = comp->getBusWidth();
         ImGui::Text("Bus width: %d bits", bw);
         ImGui::TextDisabled("(delete and re-place to change)");

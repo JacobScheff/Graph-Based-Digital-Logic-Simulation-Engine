@@ -48,6 +48,8 @@ public:
 
     const auto& getComps() const { return comps; }
 
+    static constexpr int MAX_BUS_WIDTH = 64;
+
 private:
     friend class CustomComponent;
     enum class EndpointKind { Component, Rail, Junction };
@@ -222,6 +224,8 @@ private:
     std::vector<ImVec2> routeWire(ImVec2 src, ImVec2 dst, const Endpoint& srcEp, const Endpoint& dstEp,
                                   const std::vector<ImVec2>& waypoints = {}) const;
     ImU32 stateColor(State s) const;
+    ImU32 busAggregateColor(const ComponentView& cv, int pinStart, int width, bool isDriver) const;
+    ImU32 busWireColor(const std::vector<Net*>& busNets) const;
     ImVec2 railEndpointWorld(bool isVdd, float worldX, ImVec2 origin, ImVec2 canvasSize) const;
 
     ComponentView makeView(const std::string& type, ImVec2 worldPos, int busWidth = 1);
@@ -249,7 +253,11 @@ private:
     const JunctionView* findJunction(int id) const;
 
     bool isBusComponent(const std::string& type) const;
+    bool hasConsolidatedBusDriver(const ComponentView& cv) const;
+    bool hasConsolidatedBusReceiver(const ComponentView& cv) const;
     int  componentBusWidth(const ComponentView& cv) const;
+
+    void drawBusSlash(ImDrawList* dl, ImVec2 a, ImVec2 b, int width, ImU32 col) const;
     
     // Helpers for custom component bus ports
     bool isCustomPortStart(const std::string& typeName, bool isInput, int pinIdx, int& outBusWidth) const;

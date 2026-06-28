@@ -2,6 +2,8 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include "State.hpp"
 #include "TimingWheel.hpp"
 
 class Component;
@@ -55,6 +57,7 @@ public:
 
     void step(int n = 1);
     void settle(int maxTicks = 512);
+    void settleCombinational(int maxPasses = 128);
     void update(double deltaTime);
 
     void  setTicksPerSecond(double tps) { ticksPerSecond = tps; }
@@ -66,7 +69,34 @@ public:
     TimingWheel&                    getWheel()      { return wheel; }
     const std::vector<Net*>&        getNets()  const { return nets;  }
 
+    // Used by pins during combinatorial settling passes
+    bool  isCombinatorialSettling() const { return combinatorialSettling; }
+    void  queueDriverState(Driver* driver, State state);
+    State getSettlingNetState(Net* net) const;
+
 private:
+    void restoreDriverStates(const std::unordered_map<Driver*, State>& states);
+    std::unordered_map<Driver*, State> snapshotDriverStates() const;
+    static bool driverMapsEqual(const std::unordered_map<Driver*, State>& a,
+                                const std::unordered_map<Driver*, State>& b);
+    static bool hasDefinedState(const std::unordered_map<Driver*, State>& states);
+    void applyHeldDriverStates();
+    void seedXorFeedbackPair();
+    bool hasFloatingXorOutputs() const;
+    void updateHeldDriverStates();
+    bool hasDefinedXorFeedbackIn(const std::unordered_map<Driver*, State>& source) const;
+    void restoreXorFeedbackStates(const std::unordered_map<Driver*, State>& source);
+    void resolveFloatingXorFeedback();
+    void applyTransparentXorLoad();
+    bool isXnorFeedbackReceiver(Receiver* r) const;
+    Receiver* findXnorFeedInReceiver(Component* xnor) const;
+
+    bool combinatorialSettling = false;
+    std::unordered_map<Net*, State>    settlingNetSnapshot;
+    std::unordered_map<Driver*, State> pendingDriverStates;
+    std::unordered_map<Driver*, State> settleEpochStart;
+    std::unordered_map<Driver*, State> heldDriverStates;
+
     TimingWheel                      wheel;
     std::vector<Component*>          components;
     std::vector<Clock*>              clocks;

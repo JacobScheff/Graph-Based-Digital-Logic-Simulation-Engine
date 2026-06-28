@@ -10,13 +10,11 @@ bool  readAsFalse(State s, const Simulator& sim) { return s == gndLevel(sim); }
 
 static bool componentHasPowerPins(const Component& comp)
 {
-    const std::string& type = comp.getName();
-    if (type == "SW" || type == "BTN" || type == "LED" || 
-        type == "NUM_IN" || type == "NUM_DISP" || type == "RGB_DISP" ||
-        type == "JUNCTION" || type == "BUS_MERGE" || type == "BUS_SPLIT" ||
-        type == "REG")
-        return false;
-    return true;
+    (void)comp;
+    // No built-in component exposes dedicated VDD/GND receiver pins yet.
+    // Logic gates only have signal inputs (A/B), so they must use the
+    // simulator's global rails for readAsTrue/readAsFalse/driveTrue/driveFalse.
+    return false;
 }
 
 State vddLevel(const Component& comp)
