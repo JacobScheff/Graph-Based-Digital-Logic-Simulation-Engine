@@ -84,6 +84,11 @@ private:
     void seedXorFeedbackPair();
     bool hasFloatingXorOutputs() const;
     void updateHeldDriverStates();
+    bool hasDefinedXorFeedbackIn(const std::unordered_map<Driver*, State>& source) const;
+    void restoreXorFeedbackStates(const std::unordered_map<Driver*, State>& source);
+    void resolveFloatingXorFeedback();
+    void applyTransparentXorLoad();
+    void applyHoldXorFeedback();
 
     bool combinatorialSettling = false;
     std::unordered_map<Net*, State>    settlingNetSnapshot;

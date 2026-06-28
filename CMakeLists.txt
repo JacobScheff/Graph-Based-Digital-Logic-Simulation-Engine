@@ -75,3 +75,15 @@ target_link_libraries(LogicSim PRIVATE
 if(UNIX AND NOT APPLE)
     target_link_libraries(LogicSim PRIVATE GL)
 endif()
+
+add_executable(latch_hold_test
+    ${SRC}/Net.cpp
+    ${SRC}/Pin.cpp
+    ${SRC}/Components.cpp
+    ${SRC}/TimingWheel.cpp
+    ${SRC}/IO.cpp
+    ${SRC}/PowerRails.cpp
+    ${SRC}/Simulator.cpp
+    ${SRC}/tests/latch_hold_test.cpp
+)
+target_include_directories(latch_hold_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

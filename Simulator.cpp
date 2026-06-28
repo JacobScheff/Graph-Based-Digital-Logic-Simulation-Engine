@@ -181,14 +181,19 @@ void Simulator::settle(int maxTicks)
     for (int i = 0; i < maxTicks && wheel.hasPendingEvents(); ++i)
         wheel.tick();
 
+    for (Component* c : components) {
+        if (c == vddSource.get() || c == gndSource.get()) continue;
+        c->update();
+    }
+
     settleEpochStart = snapshotDriverStates();
     settleCombinational();
+    applyTransparentXorLoad();
+    applyHoldXorFeedback();
     updateHeldDriverStates();
 
-    if (hasFloatingXorOutputs()) {
-        seedXorFeedbackPair();
-        updateHeldDriverStates();
-    }
+    if (hasFloatingXorOutputs())
+        resolveFloatingXorFeedback();
 }
 
 void Simulator::queueDriverState(Driver* driver, State state)
@@ -280,6 +285,113 @@ void Simulator::applyHeldDriverStates()
     }
 }
 
+bool Simulator::hasDefinedXorFeedbackIn(
+    const std::unordered_map<Driver*, State>& source) const
+{
+    int defined = 0;
+    for (Component* c : components) {
+        if (c->getName() != "XNOR") continue;
+        if (Driver* d = c->getDriver(0)) {
+            auto it = source.find(d);
+            if (it != source.end() &&
+                it->second != State::FLOATING &&
+                it->second != State::UNDEFINED) {
+                ++defined;
+            }
+        }
+    }
+    return defined >= 2;
+}
+
+void Simulator::restoreXorFeedbackStates(
+    const std::unordered_map<Driver*, State>& source)
+{
+    for (Component* c : components) {
+        if (c->getName() != "XNOR") continue;
+        if (Driver* d = c->getDriver(0)) {
+            auto it = source.find(d);
+            if (it != source.end() &&
+                it->second != State::FLOATING &&
+                it->second != State::UNDEFINED &&
+                d->getState() != it->second) {
+                d->setState(it->second);
+            }
+        }
+    }
+}
+
+void Simulator::applyTransparentXorLoad()
+{
+    std::vector<Component*> xnors;
+    for (Component* c : components) {
+        if (c->getName() == "XNOR")
+            xnors.push_back(c);
+    }
+    if (xnors.size() < 2) return;
+
+    Component* topXnor = xnors[0];
+    Component* bottomXnor = xnors[1];
+    Receiver* topPath = topXnor->getReceiver(0);
+    Receiver* bottomPath = bottomXnor->getReceiver(0);
+    if (!topPath || !bottomPath) return;
+
+    State topIn = topPath->getState();
+    State bottomIn = bottomPath->getState();
+
+    bool topHigh = readAsTrue(topIn, *topXnor);
+    bool topLow = readAsFalse(topIn, *topXnor);
+    bool bottomHigh = readAsTrue(bottomIn, *bottomXnor);
+    bool bottomLow = readAsFalse(bottomIn, *bottomXnor);
+
+    // Transparent load: one side driven, the other held low by the AND network.
+    if (topHigh && bottomLow) {
+        if (Driver* d0 = topXnor->getDriver(0))
+            d0->setState(driveFalse(*topXnor));
+        if (Driver* d1 = bottomXnor->getDriver(0))
+            d1->setState(driveTrue(*bottomXnor));
+    } else if (topLow && bottomHigh) {
+        if (Driver* d0 = topXnor->getDriver(0))
+            d0->setState(driveTrue(*topXnor));
+        if (Driver* d1 = bottomXnor->getDriver(0))
+            d1->setState(driveFalse(*bottomXnor));
+    }
+}
+
+void Simulator::applyHoldXorFeedback()
+{
+    std::vector<Component*> xnors;
+    for (Component* c : components) {
+        if (c->getName() == "XNOR")
+            xnors.push_back(c);
+    }
+    if (xnors.size() < 2) return;
+
+    Component* topXnor = xnors[0];
+    Component* bottomXnor = xnors[1];
+    Receiver* topPath = topXnor->getReceiver(0);
+    Receiver* bottomPath = bottomXnor->getReceiver(0);
+    if (!topPath || !bottomPath) return;
+
+    if (!readAsFalse(topPath->getState(), *topXnor) ||
+        !readAsFalse(bottomPath->getState(), *bottomXnor)) {
+        return;
+    }
+
+    if (hasDefinedXorFeedbackIn(heldDriverStates))
+        restoreXorFeedbackStates(heldDriverStates);
+}
+
+void Simulator::resolveFloatingXorFeedback()
+{
+    if (hasDefinedXorFeedbackIn(heldDriverStates))
+        restoreXorFeedbackStates(heldDriverStates);
+    else if (hasDefinedXorFeedbackIn(settleEpochStart))
+        restoreXorFeedbackStates(settleEpochStart);
+    else
+        seedXorFeedbackPair();
+    updateHeldDriverStates();
+}
+
 void Simulator::seedXorFeedbackPair()
 {
     std::vector<Component*> xnors;
@@ -289,10 +401,44 @@ void Simulator::seedXorFeedbackPair()
     }
     if (xnors.size() < 2) return;
 
+    auto pickState = [&](Component* xnor) -> State {
+        if (!xnor) return State::FLOATING;
+        Driver* d = xnor->getDriver(0);
+        if (!d) return State::FLOATING;
+
+        auto held = heldDriverStates.find(d);
+        if (held != heldDriverStates.end() &&
+            held->second != State::FLOATING &&
+            held->second != State::UNDEFINED) {
+            return held->second;
+        }
+
+        auto epoch = settleEpochStart.find(d);
+        if (epoch != settleEpochStart.end() &&
+            epoch->second != State::FLOATING &&
+            epoch->second != State::UNDEFINED) {
+            return epoch->second;
+        }
+
+        return State::FLOATING;
+    };
+
+    State s0 = pickState(xnors[0]);
+    State s1 = pickState(xnors[1]);
+
+    if (s0 == State::FLOATING && s1 == State::FLOATING) {
+        s0 = driveTrue(*xnors[0]);
+        s1 = driveFalse(*xnors[1]);
+    } else if (s0 != State::FLOATING && s1 == State::FLOATING) {
+        s1 = invertRail(s0, *xnors[1]);
+    } else if (s0 == State::FLOATING && s1 != State::FLOATING) {
+        s0 = invertRail(s1, *xnors[0]);
+    }
+
     if (Driver* d0 = xnors[0]->getDriver(0))
-        d0->setState(driveTrue(*xnors[0]));
+        d0->setState(s0);
     if (Driver* d1 = xnors[1]->getDriver(0))
-        d1->setState(driveFalse(*xnors[1]));
+        d1->setState(s1);
 }
 
 bool Simulator::hasFloatingXorOutputs() const
@@ -365,12 +511,7 @@ void Simulator::settleCombinational(int maxPasses)
             return;
 
         if (pass >= 2 && driverMapsEqual(current, prevPrevPass)) {
-            if (hasDefinedState(settleEpochStart))
-                restoreDriverStates(settleEpochStart);
-            else if (hasDefinedState(heldDriverStates))
-                applyHeldDriverStates();
-            else
-                seedXorFeedbackPair();
+            resolveFloatingXorFeedback();
             return;
         }
 
