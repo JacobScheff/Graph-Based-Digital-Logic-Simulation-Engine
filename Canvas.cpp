@@ -32,6 +32,68 @@ ImU32 Canvas::stateColor(State s) const
     return IM_COL32(255,255,255,255);
 }
 
+ImU32 Canvas::busAggregateColor(const ComponentView& cv, int pinStart, int width, bool isDriver) const
+{
+    bool anyTrue = false;
+    bool anyFalse = false;
+    bool anyUndef = false;
+
+    for (int b = 0; b < width; ++b) {
+        State bs = isDriver
+            ? cv.comp->getDriver(pinStart + b)->getState()
+            : cv.comp->getReceiver(pinStart + b)->getState();
+
+        if (bs == State::UNDEFINED) {
+            anyUndef = true;
+            continue;
+        }
+        if (sim) {
+            if (readAsTrue(bs, *sim))       anyTrue = true;
+            else if (readAsFalse(bs, *sim)) anyFalse = true;
+        } else {
+            if (bs == State::HIGH) anyTrue = true;
+            else if (bs == State::LOW)  anyFalse = true;
+        }
+    }
+
+    if (anyUndef) return stateColor(State::UNDEFINED);
+    if (anyTrue && anyFalse) return IM_COL32(200, 100, 200, 255);
+    if (anyTrue) return stateColor(State::HIGH);
+    if (anyFalse) return stateColor(State::LOW);
+    return stateColor(State::FLOATING);
+}
+
+ImU32 Canvas::busWireColor(const std::vector<Net*>& busNets) const
+{
+    if (busNets.empty()) return stateColor(State::FLOATING);
+
+    bool anyTrue = false;
+    bool anyFalse = false;
+    bool anyUndef = false;
+
+    for (Net* n : busNets) {
+        if (!n) continue;
+        State s = n->getState();
+        if (s == State::UNDEFINED) {
+            anyUndef = true;
+            continue;
+        }
+        if (sim) {
+            if (readAsTrue(s, *sim))       anyTrue = true;
+            else if (readAsFalse(s, *sim)) anyFalse = true;
+        } else {
+            if (s == State::HIGH) anyTrue = true;
+            else if (s == State::LOW)  anyFalse = true;
+        }
+    }
+
+    if (anyUndef) return stateColor(State::UNDEFINED);
+    if (anyTrue && anyFalse) return IM_COL32(200, 100, 200, 255);
+    if (anyTrue) return stateColor(State::HIGH);
+    if (anyFalse) return stateColor(State::LOW);
+    return stateColor(State::FLOATING);
+}
+
 ImVec2 Canvas::railEndpointWorld(bool isVdd, float worldX,
                                  ImVec2 origin, ImVec2 canvasSize) const
 {
@@ -1813,22 +1875,8 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
 
         if (isBusDraw) {
-            bool anyTrue = false;
-            bool anyFalse = false;
             int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
-            for (int b = 0; b < bw; ++b) {
-                State bs = cv.comp->getReceiver(i + b)->getState();
-                if (sim) {
-                    if (readAsTrue(bs, *sim))  anyTrue = true;
-                    if (readAsFalse(bs, *sim)) anyFalse = true;
-                } else {
-                    if (bs == State::HIGH) anyTrue = true;
-                    if (bs == State::LOW)  anyFalse = true;
-                }
-            }
-            if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
-            else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
-            else if (anyTrue && anyFalse) col = IM_COL32(200, 100, 200, 255);
+            col = busAggregateColor(cv, i, bw, false);
         }
 
         dl->AddLine(edge, tip, col, lw);
@@ -1892,22 +1940,8 @@ void Canvas::drawComp(ImDrawList* dl, const ComponentView& cv, ImVec2 origin) co
         float lw  = isBusDraw ? 4.f * zoom : 2.2f * zoom;
 
         if (isBusDraw) {
-            bool anyTrue = false;
-            bool anyFalse = false;
             int bw = customPortBw > 1 ? customPortBw : cv.busWidth;
-            for (int b = 0; b < bw; ++b) {
-                State bs = cv.comp->getDriver(i + b)->getState();
-                if (sim) {
-                    if (readAsTrue(bs, *sim))  anyTrue = true;
-                    if (readAsFalse(bs, *sim)) anyFalse = true;
-                } else {
-                    if (bs == State::HIGH) anyTrue = true;
-                    if (bs == State::LOW)  anyFalse = true;
-                }
-            }
-            if (anyTrue && !anyFalse) col = IM_COL32(250, 50, 50, 255);
-            else if (!anyTrue && anyFalse) col = IM_COL32(50, 150, 250, 255);
-            else if (anyTrue && anyFalse) col = IM_COL32(200, 100, 200, 255);
+            col = busAggregateColor(cv, i, bw, true);
         }
 
         dl->AddLine(edge, tip, col, lw);
@@ -2030,13 +2064,9 @@ void Canvas::drawAllWires(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
         ImVec2 dst = endpointPos(wv.dst, origin, size);
         auto pts   = routeWire(src, dst, wv.src, wv.dst, wv.waypoints);
 
-        State st = State::FLOATING;
-        if (wv.busWidth > 1 && !wv.busNets.empty())
-            st = wv.busNets[0]->getState();
-        else if (wv.net)
-            st = wv.net->getState();
-
-        ImU32 col = stateColor(st);
+        ImU32 col = (wv.busWidth > 1 && !wv.busNets.empty())
+            ? busWireColor(wv.busNets)
+            : stateColor(wv.net ? wv.net->getState() : State::FLOATING);
         float lw  = wv.busWidth > 1 ? 4.f * zoom : 2.5f * zoom;
 
         // Selection glow

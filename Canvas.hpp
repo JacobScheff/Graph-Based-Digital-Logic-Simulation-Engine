@@ -224,6 +224,8 @@ private:
     std::vector<ImVec2> routeWire(ImVec2 src, ImVec2 dst, const Endpoint& srcEp, const Endpoint& dstEp,
                                   const std::vector<ImVec2>& waypoints = {}) const;
     ImU32 stateColor(State s) const;
+    ImU32 busAggregateColor(const ComponentView& cv, int pinStart, int width, bool isDriver) const;
+    ImU32 busWireColor(const std::vector<Net*>& busNets) const;
     ImVec2 railEndpointWorld(bool isVdd, float worldX, ImVec2 origin, ImVec2 canvasSize) const;
 
     ComponentView makeView(const std::string& type, ImVec2 worldPos, int busWidth = 1);
