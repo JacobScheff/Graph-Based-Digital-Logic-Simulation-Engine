@@ -2,6 +2,8 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include "State.hpp"
 #include "TimingWheel.hpp"
 
 class Component;
@@ -67,7 +69,22 @@ public:
     TimingWheel&                    getWheel()      { return wheel; }
     const std::vector<Net*>&        getNets()  const { return nets;  }
 
+    // Used by pins during combinatorial settling passes
+    bool  isCombinatorialSettling() const { return combinatorialSettling; }
+    void  queueDriverState(Driver* driver, State state);
+    State getSettlingNetState(Net* net) const;
+
 private:
+    void restoreDriverStates(const std::unordered_map<Driver*, State>& states);
+    std::unordered_map<Driver*, State> snapshotDriverStates() const;
+    static bool driverMapsEqual(const std::unordered_map<Driver*, State>& a,
+                                const std::unordered_map<Driver*, State>& b);
+
+    bool combinatorialSettling = false;
+    std::unordered_map<Net*, State>    settlingNetSnapshot;
+    std::unordered_map<Driver*, State> pendingDriverStates;
+    std::unordered_map<Driver*, State> settleEpochStart;
+
     TimingWheel                      wheel;
     std::vector<Component*>          components;
     std::vector<Clock*>              clocks;

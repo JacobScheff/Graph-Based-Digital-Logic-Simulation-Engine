@@ -3,6 +3,7 @@
 #include "IO.hpp"
 #include "Pin.hpp"
 #include "Net.hpp"
+#include "State.hpp"
 #include <algorithm>
 
 Simulator::Simulator()
@@ -178,31 +179,108 @@ void Simulator::settle(int maxTicks)
 {
     for (int i = 0; i < maxTicks && wheel.hasPendingEvents(); ++i)
         wheel.tick();
+
+    settleEpochStart = snapshotDriverStates();
     settleCombinational();
+}
+
+void Simulator::queueDriverState(Driver* driver, State state)
+{
+    if (driver)
+        pendingDriverStates[driver] = state;
+}
+
+State Simulator::getSettlingNetState(Net* net) const
+{
+    if (!net) return State::FLOATING;
+    auto it = settlingNetSnapshot.find(net);
+    if (it != settlingNetSnapshot.end())
+        return it->second;
+    return net->getState();
+}
+
+std::unordered_map<Driver*, State> Simulator::snapshotDriverStates() const
+{
+    std::unordered_map<Driver*, State> snap;
+    for (Component* c : components) {
+        if (c == vddSource.get() || c == gndSource.get()) continue;
+        for (int i = 0; i < c->numDrivers(); ++i) {
+            Driver* d = c->getDriver(i);
+            if (d) snap[d] = d->getState();
+        }
+    }
+    return snap;
+}
+
+void Simulator::restoreDriverStates(const std::unordered_map<Driver*, State>& states)
+{
+    for (const auto& [driver, state] : states) {
+        if (!driver) continue;
+        if (driver->getState() != state)
+            driver->setState(state);
+    }
+}
+
+bool Simulator::driverMapsEqual(const std::unordered_map<Driver*, State>& a,
+                                const std::unordered_map<Driver*, State>& b)
+{
+    if (a.size() != b.size()) return false;
+    for (const auto& [driver, state] : a) {
+        auto it = b.find(driver);
+        if (it == b.end() || it->second != state) return false;
+    }
+    return true;
 }
 
 void Simulator::settleCombinational(int maxPasses)
 {
+    if (settleEpochStart.empty())
+        settleEpochStart = snapshotDriverStates();
+
+    std::unordered_map<Driver*, State> prevPass;
+    std::unordered_map<Driver*, State> prevPrevPass;
+
     for (int pass = 0; pass < maxPasses; ++pass) {
-        bool changed = false;
+        settlingNetSnapshot.clear();
+        for (Net* net : nets)
+            settlingNetSnapshot[net] = net->getState();
+
+        pendingDriverStates.clear();
+        combinatorialSettling = true;
+
         for (Component* c : components) {
             if (c == vddSource.get() || c == gndSource.get()) continue;
-
-            std::vector<std::pair<Driver*, State>> before;
-            before.reserve(c->numDrivers());
-            for (int i = 0; i < c->numDrivers(); ++i)
-                before.emplace_back(c->getDriver(i), c->getDriver(i)->getState());
-
             c->update();
+        }
 
-            for (const auto& [drv, oldState] : before) {
-                if (drv->getState() != oldState) {
-                    changed = true;
-                    break;
-                }
+        combinatorialSettling = false;
+
+        bool changed = false;
+        for (const auto& [driver, newState] : pendingDriverStates) {
+            State oldState = driver->getState();
+            if (newState == State::FLOATING &&
+                oldState != State::FLOATING &&
+                oldState != State::UNDEFINED) {
+                continue;
+            }
+            if (newState != oldState) {
+                driver->setState(newState);
+                changed = true;
             }
         }
-        if (!changed) break;
+
+        std::unordered_map<Driver*, State> current = snapshotDriverStates();
+
+        if (!changed)
+            return;
+
+        if (pass >= 2 && driverMapsEqual(current, prevPrevPass)) {
+            restoreDriverStates(settleEpochStart);
+            return;
+        }
+
+        prevPrevPass = std::move(prevPass);
+        prevPass = std::move(current);
     }
 }
 
