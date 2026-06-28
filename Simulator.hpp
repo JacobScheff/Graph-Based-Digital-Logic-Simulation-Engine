@@ -79,11 +79,17 @@ private:
     std::unordered_map<Driver*, State> snapshotDriverStates() const;
     static bool driverMapsEqual(const std::unordered_map<Driver*, State>& a,
                                 const std::unordered_map<Driver*, State>& b);
+    static bool hasDefinedState(const std::unordered_map<Driver*, State>& states);
+    void applyHeldDriverStates();
+    void seedXorFeedbackPair();
+    bool hasFloatingXorOutputs() const;
+    void updateHeldDriverStates();
 
     bool combinatorialSettling = false;
     std::unordered_map<Net*, State>    settlingNetSnapshot;
     std::unordered_map<Driver*, State> pendingDriverStates;
     std::unordered_map<Driver*, State> settleEpochStart;
+    std::unordered_map<Driver*, State> heldDriverStates;
 
     TimingWheel                      wheel;
     std::vector<Component*>          components;

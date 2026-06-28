@@ -131,8 +131,14 @@ public:
     XnorGate() : Component("XNOR", 2, 1) {}
     void update() override {
         if (!getSimulator()) return;
-        drivers[0]->setState(invertRail(
+        State out = invertRail(
             resolveXorRail(receivers[0]->getState(),
-                           receivers[1]->getState(), *this), *this));
+                           receivers[1]->getState(), *this), *this);
+        State cur = drivers[0]->getState();
+        if ((out == State::FLOATING || out == State::UNDEFINED) &&
+            cur != State::FLOATING && cur != State::UNDEFINED) {
+            return;
+        }
+        drivers[0]->setState(out);
     }
 };

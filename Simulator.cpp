@@ -4,6 +4,7 @@
 #include "Pin.hpp"
 #include "Net.hpp"
 #include "State.hpp"
+#include "PowerRails.hpp"
 #include <algorithm>
 
 Simulator::Simulator()
@@ -182,6 +183,12 @@ void Simulator::settle(int maxTicks)
 
     settleEpochStart = snapshotDriverStates();
     settleCombinational();
+    updateHeldDriverStates();
+
+    if (hasFloatingXorOutputs()) {
+        seedXorFeedbackPair();
+        updateHeldDriverStates();
+    }
 }
 
 void Simulator::queueDriverState(Driver* driver, State state)
@@ -193,10 +200,32 @@ void Simulator::queueDriverState(Driver* driver, State state)
 State Simulator::getSettlingNetState(Net* net) const
 {
     if (!net) return State::FLOATING;
-    auto it = settlingNetSnapshot.find(net);
-    if (it != settlingNetSnapshot.end())
-        return it->second;
-    return net->getState();
+
+    for (Driver* driver : net->getDrivers()) {
+        auto pending = pendingDriverStates.find(driver);
+        if (pending != pendingDriverStates.end())
+            return pending->second;
+    }
+
+    auto snapIt = settlingNetSnapshot.find(net);
+    State snap = snapIt != settlingNetSnapshot.end() ? snapIt->second : net->getState();
+    if (snap != State::FLOATING && snap != State::UNDEFINED)
+        return snap;
+
+    for (Driver* driver : net->getDrivers()) {
+        auto held = heldDriverStates.find(driver);
+        if (held != heldDriverStates.end())
+            return held->second;
+
+        auto epoch = settleEpochStart.find(driver);
+        if (epoch != settleEpochStart.end() &&
+            epoch->second != State::FLOATING &&
+            epoch->second != State::UNDEFINED) {
+            return epoch->second;
+        }
+    }
+
+    return snap;
 }
 
 std::unordered_map<Driver*, State> Simulator::snapshotDriverStates() const
@@ -232,6 +261,61 @@ bool Simulator::driverMapsEqual(const std::unordered_map<Driver*, State>& a,
     return true;
 }
 
+bool Simulator::hasDefinedState(const std::unordered_map<Driver*, State>& states)
+{
+    for (const auto& [driver, state] : states) {
+        (void)driver;
+        if (state != State::FLOATING && state != State::UNDEFINED)
+            return true;
+    }
+    return false;
+}
+
+void Simulator::applyHeldDriverStates()
+{
+    for (const auto& [driver, state] : heldDriverStates) {
+        if (!driver) continue;
+        if (driver->getState() != state)
+            driver->setState(state);
+    }
+}
+
+void Simulator::seedXorFeedbackPair()
+{
+    std::vector<Component*> xnors;
+    for (Component* c : components) {
+        if (c->getName() == "XNOR")
+            xnors.push_back(c);
+    }
+    if (xnors.size() < 2) return;
+
+    if (Driver* d0 = xnors[0]->getDriver(0))
+        d0->setState(driveTrue(*xnors[0]));
+    if (Driver* d1 = xnors[1]->getDriver(0))
+        d1->setState(driveFalse(*xnors[1]));
+}
+
+bool Simulator::hasFloatingXorOutputs() const
+{
+    for (Component* c : components) {
+        if (c->getName() != "XNOR") continue;
+        if (Driver* d = c->getDriver(0)) {
+            State s = d->getState();
+            if (s == State::FLOATING || s == State::UNDEFINED)
+                return true;
+        }
+    }
+    return false;
+}
+
+void Simulator::updateHeldDriverStates()
+{
+    for (const auto& [driver, state] : snapshotDriverStates()) {
+        if (state != State::FLOATING && state != State::UNDEFINED)
+            heldDriverStates[driver] = state;
+    }
+}
+
 void Simulator::settleCombinational(int maxPasses)
 {
     if (settleEpochStart.empty())
@@ -250,6 +334,12 @@ void Simulator::settleCombinational(int maxPasses)
 
         for (Component* c : components) {
             if (c == vddSource.get() || c == gndSource.get()) continue;
+            if (c->getName() == "XNOR") continue;
+            c->update();
+        }
+        for (Component* c : components) {
+            if (c == vddSource.get() || c == gndSource.get()) continue;
+            if (c->getName() != "XNOR") continue;
             c->update();
         }
 
@@ -275,7 +365,12 @@ void Simulator::settleCombinational(int maxPasses)
             return;
 
         if (pass >= 2 && driverMapsEqual(current, prevPrevPass)) {
-            restoreDriverStates(settleEpochStart);
+            if (hasDefinedState(settleEpochStart))
+                restoreDriverStates(settleEpochStart);
+            else if (hasDefinedState(heldDriverStates))
+                applyHeldDriverStates();
+            else
+                seedXorFeedbackPair();
             return;
         }
 
