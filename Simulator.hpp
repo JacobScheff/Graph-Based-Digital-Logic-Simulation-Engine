@@ -88,7 +88,8 @@ private:
     void restoreXorFeedbackStates(const std::unordered_map<Driver*, State>& source);
     void resolveFloatingXorFeedback();
     void applyTransparentXorLoad();
-    void applyHoldXorFeedback();
+    bool isXnorFeedbackReceiver(Receiver* r) const;
+    Receiver* findXnorFeedInReceiver(Component* xnor) const;
 
     bool combinatorialSettling = false;
     std::unordered_map<Net*, State>    settlingNetSnapshot;

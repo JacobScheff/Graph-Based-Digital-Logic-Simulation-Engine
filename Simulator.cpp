@@ -176,20 +176,61 @@ void Simulator::step(int n)
         wheel.tick();
 }
 
+// ─── Topology helper ──────────────────────────────────────────────────────────
+// For an XNOR gate receiver, check whether its net is driven by any other XNOR.
+// If NOT driven by an XNOR, this is a "feed-in" pin (connects to AND network).
+bool Simulator::isXnorFeedbackReceiver(Receiver* r) const
+{
+    Net* n = r ? r->getNet() : nullptr;
+    if (!n) return false;
+    for (Driver* d : n->getDrivers()) {
+        for (Component* c : components) {
+            if (c->getName() != "XNOR") continue;
+            for (int i = 0; i < c->numDrivers(); ++i)
+                if (c->getDriver(i) == d) return true;
+        }
+    }
+    return false;
+}
+
+// Return the receiver on xnor that is driven by something OTHER than an XNOR.
+Receiver* Simulator::findXnorFeedInReceiver(Component* xnor) const
+{
+    for (int i = 0; i < xnor->numReceivers(); ++i) {
+        Receiver* r = xnor->getReceiver(i);
+        if (r && !isXnorFeedbackReceiver(r)) return r;
+    }
+    return nullptr;
+}
+
+// ─── Settle ───────────────────────────────────────────────────────────────────
 void Simulator::settle(int maxTicks)
 {
     for (int i = 0; i < maxTicks && wheel.hasPendingEvents(); ++i)
         wheel.tick();
 
-    for (Component* c : components) {
-        if (c == vddSource.get() || c == gndSource.get()) continue;
-        c->update();
-    }
+    // After inputs have propagated, restore XNOR feedback from the last good
+    // held state.  This overrides any wrong state the oscillating timing wheel
+    // left behind and ensures settleCombinational starts from the correct Q.
+    restoreXorFeedbackStates(heldDriverStates);
 
     settleEpochStart = snapshotDriverStates();
     settleCombinational();
+
+    // In transparent mode (Enable=1) the XNOR pair has no stable fixed point
+    // so settleCombinational oscillates. Detect AND-input values and force
+    // the correct Q onto the XNOR outputs.
     applyTransparentXorLoad();
-    applyHoldXorFeedback();
+
+    // Propagate XNOR corrections to all downstream (non-XNOR) components,
+    // e.g. PortOut inside the custom latch.  Skip XNOR itself so we don't
+    // undo what applyTransparentXorLoad just set.
+    for (Component* c : components) {
+        if (c == vddSource.get() || c == gndSource.get()) continue;
+        if (c->getName() == "XNOR") continue;
+        c->update();
+    }
+
     updateHeldDriverStates();
 
     if (hasFloatingXorOutputs())
@@ -320,67 +361,6 @@ void Simulator::restoreXorFeedbackStates(
     }
 }
 
-void Simulator::applyTransparentXorLoad()
-{
-    std::vector<Component*> xnors;
-    for (Component* c : components) {
-        if (c->getName() == "XNOR")
-            xnors.push_back(c);
-    }
-    if (xnors.size() < 2) return;
-
-    Component* topXnor = xnors[0];
-    Component* bottomXnor = xnors[1];
-    Receiver* topPath = topXnor->getReceiver(0);
-    Receiver* bottomPath = bottomXnor->getReceiver(0);
-    if (!topPath || !bottomPath) return;
-
-    State topIn = topPath->getState();
-    State bottomIn = bottomPath->getState();
-
-    bool topHigh = readAsTrue(topIn, *topXnor);
-    bool topLow = readAsFalse(topIn, *topXnor);
-    bool bottomHigh = readAsTrue(bottomIn, *bottomXnor);
-    bool bottomLow = readAsFalse(bottomIn, *bottomXnor);
-
-    // Transparent load: one side driven, the other held low by the AND network.
-    if (topHigh && bottomLow) {
-        if (Driver* d0 = topXnor->getDriver(0))
-            d0->setState(driveFalse(*topXnor));
-        if (Driver* d1 = bottomXnor->getDriver(0))
-            d1->setState(driveTrue(*bottomXnor));
-    } else if (topLow && bottomHigh) {
-        if (Driver* d0 = topXnor->getDriver(0))
-            d0->setState(driveTrue(*topXnor));
-        if (Driver* d1 = bottomXnor->getDriver(0))
-            d1->setState(driveFalse(*bottomXnor));
-    }
-}
-
-void Simulator::applyHoldXorFeedback()
-{
-    std::vector<Component*> xnors;
-    for (Component* c : components) {
-        if (c->getName() == "XNOR")
-            xnors.push_back(c);
-    }
-    if (xnors.size() < 2) return;
-
-    Component* topXnor = xnors[0];
-    Component* bottomXnor = xnors[1];
-    Receiver* topPath = topXnor->getReceiver(0);
-    Receiver* bottomPath = bottomXnor->getReceiver(0);
-    if (!topPath || !bottomPath) return;
-
-    if (!readAsFalse(topPath->getState(), *topXnor) ||
-        !readAsFalse(bottomPath->getState(), *bottomXnor)) {
-        return;
-    }
-
-    if (hasDefinedXorFeedbackIn(heldDriverStates))
-        restoreXorFeedbackStates(heldDriverStates);
-}
-
 void Simulator::resolveFloatingXorFeedback()
 {
     if (hasDefinedXorFeedbackIn(heldDriverStates))
@@ -462,13 +442,57 @@ void Simulator::updateHeldDriverStates()
     }
 }
 
+// Correct XNOR outputs for transparent-load condition (Enable=1).
+// Uses topology detection to find the AND-side receiver (not feedback).
+// One XNOR sees its AND input HIGH, the other sees LOW → asymmetric drive
+// indicates which complementary state to force.
+void Simulator::applyTransparentXorLoad()
+{
+    std::vector<Component*> xnors;
+    for (Component* c : components) {
+        if (c->getName() == "XNOR")
+            xnors.push_back(c);
+    }
+    if (xnors.size() < 2) return;
+
+    Component* x0 = xnors[0];
+    Component* x1 = xnors[1];
+
+    Receiver* feedIn0 = findXnorFeedInReceiver(x0);
+    Receiver* feedIn1 = findXnorFeedInReceiver(x1);
+    if (!feedIn0 || !feedIn1) return;
+
+    State in0 = feedIn0->getState();
+    State in1 = feedIn1->getState();
+
+    bool in0high = readAsTrue(in0,  *x0), in0low = readAsFalse(in0,  *x0);
+    bool in1high = readAsTrue(in1,  *x1), in1low = readAsFalse(in1,  *x1);
+
+    // Exactly one AND input is HIGH (transparent load): force complementary Q.
+    Driver* d0 = x0->getDriver(0);
+    Driver* d1 = x1->getDriver(0);
+
+    if (in0high && in1low) {
+        if (d0) d0->setState(driveFalse(*x0));
+        if (d1) d1->setState(driveTrue(*x1));
+    } else if (in1high && in0low) {
+        if (d0) d0->setState(driveTrue(*x0));
+        if (d1) d1->setState(driveFalse(*x1));
+    }
+    // Both low (hold mode) or both high (illegal): leave XNOR outputs alone.
+}
+
 void Simulator::settleCombinational(int maxPasses)
 {
     if (settleEpochStart.empty())
         settleEpochStart = snapshotDriverStates();
 
-    std::unordered_map<Driver*, State> prevPass;
-    std::unordered_map<Driver*, State> prevPrevPass;
+    // Keep a rolling history of the last HISTORY_DEPTH states.
+    // This lets us detect oscillation cycles up to that length (XNOR latches
+    // in transparent mode oscillate with period 4, which 2-step lookback misses).
+    static constexpr int HISTORY_DEPTH = 8;
+    std::vector<std::unordered_map<Driver*, State>> history;
+    history.reserve(HISTORY_DEPTH + 1);
 
     for (int pass = 0; pass < maxPasses; ++pass) {
         settlingNetSnapshot.clear();
@@ -505,18 +529,25 @@ void Simulator::settleCombinational(int maxPasses)
             }
         }
 
-        std::unordered_map<Driver*, State> current = snapshotDriverStates();
-
         if (!changed)
             return;
 
-        if (pass >= 2 && driverMapsEqual(current, prevPrevPass)) {
+        std::unordered_map<Driver*, State> current = snapshotDriverStates();
+
+        // Check against every state in history (catches any cycle up to HISTORY_DEPTH).
+        bool oscillating = false;
+        for (const auto& prev : history) {
+            if (driverMapsEqual(current, prev)) { oscillating = true; break; }
+        }
+
+        if (oscillating) {
             resolveFloatingXorFeedback();
             return;
         }
 
-        prevPrevPass = std::move(prevPass);
-        prevPass = std::move(current);
+        if (static_cast<int>(history.size()) >= HISTORY_DEPTH)
+            history.erase(history.begin());
+        history.push_back(std::move(current));
     }
 }
 
