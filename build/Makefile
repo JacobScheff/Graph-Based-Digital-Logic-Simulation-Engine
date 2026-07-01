@@ -57,10 +57,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = "/mnt/c/Users/jacob/Documents/VSC/Graph-Based Digital Logic Simulation Engine"
+CMAKE_SOURCE_DIR = /workspace
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = "/mnt/c/Users/jacob/Documents/VSC/Graph-Based Digital Logic Simulation Engine/build"
+CMAKE_BINARY_DIR = /workspace/build
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -132,9 +132,9 @@ install/strip/fast: preinstall/fast
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start "/mnt/c/Users/jacob/Documents/VSC/Graph-Based Digital Logic Simulation Engine/build/CMakeFiles" "/mnt/c/Users/jacob/Documents/VSC/Graph-Based Digital Logic Simulation Engine/build//CMakeFiles/progress.marks"
+	$(CMAKE_COMMAND) -E cmake_progress_start /workspace/build/CMakeFiles /workspace/build//CMakeFiles/progress.marks
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start "/mnt/c/Users/jacob/Documents/VSC/Graph-Based Digital Logic Simulation Engine/build/CMakeFiles" 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /workspace/build/CMakeFiles 0
 .PHONY : all
 
 # The main clean target
@@ -173,6 +173,19 @@ LogicSim: cmake_check_build_system
 LogicSim/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/build
 .PHONY : LogicSim/fast
+
+#=============================================================================
+# Target rules for targets named latch_hold_test
+
+# Build rule for target.
+latch_hold_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 latch_hold_test
+.PHONY : latch_hold_test
+
+# fast build rule for target.
+latch_hold_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/build
+.PHONY : latch_hold_test/fast
 
 #=============================================================================
 # Target rules for targets named uninstall
@@ -291,6 +304,7 @@ Components.o: Components.cpp.o
 # target to build an object file
 Components.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Components.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Components.cpp.o
 .PHONY : Components.cpp.o
 
 Components.i: Components.cpp.i
@@ -299,6 +313,7 @@ Components.i: Components.cpp.i
 # target to preprocess a source file
 Components.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Components.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Components.cpp.i
 .PHONY : Components.cpp.i
 
 Components.s: Components.cpp.s
@@ -307,6 +322,7 @@ Components.s: Components.cpp.s
 # target to generate assembly for a file
 Components.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Components.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Components.cpp.s
 .PHONY : Components.cpp.s
 
 CustomComponent.o: CustomComponent.cpp.o
@@ -339,6 +355,7 @@ IO.o: IO.cpp.o
 # target to build an object file
 IO.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/IO.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/IO.cpp.o
 .PHONY : IO.cpp.o
 
 IO.i: IO.cpp.i
@@ -347,6 +364,7 @@ IO.i: IO.cpp.i
 # target to preprocess a source file
 IO.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/IO.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/IO.cpp.i
 .PHONY : IO.cpp.i
 
 IO.s: IO.cpp.s
@@ -355,6 +373,7 @@ IO.s: IO.cpp.s
 # target to generate assembly for a file
 IO.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/IO.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/IO.cpp.s
 .PHONY : IO.cpp.s
 
 Net.o: Net.cpp.o
@@ -363,6 +382,7 @@ Net.o: Net.cpp.o
 # target to build an object file
 Net.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Net.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Net.cpp.o
 .PHONY : Net.cpp.o
 
 Net.i: Net.cpp.i
@@ -371,6 +391,7 @@ Net.i: Net.cpp.i
 # target to preprocess a source file
 Net.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Net.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Net.cpp.i
 .PHONY : Net.cpp.i
 
 Net.s: Net.cpp.s
@@ -379,6 +400,7 @@ Net.s: Net.cpp.s
 # target to generate assembly for a file
 Net.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Net.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Net.cpp.s
 .PHONY : Net.cpp.s
 
 Pin.o: Pin.cpp.o
@@ -387,6 +409,7 @@ Pin.o: Pin.cpp.o
 # target to build an object file
 Pin.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Pin.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Pin.cpp.o
 .PHONY : Pin.cpp.o
 
 Pin.i: Pin.cpp.i
@@ -395,6 +418,7 @@ Pin.i: Pin.cpp.i
 # target to preprocess a source file
 Pin.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Pin.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Pin.cpp.i
 .PHONY : Pin.cpp.i
 
 Pin.s: Pin.cpp.s
@@ -403,6 +427,7 @@ Pin.s: Pin.cpp.s
 # target to generate assembly for a file
 Pin.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Pin.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Pin.cpp.s
 .PHONY : Pin.cpp.s
 
 PowerRails.o: PowerRails.cpp.o
@@ -411,6 +436,7 @@ PowerRails.o: PowerRails.cpp.o
 # target to build an object file
 PowerRails.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/PowerRails.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/PowerRails.cpp.o
 .PHONY : PowerRails.cpp.o
 
 PowerRails.i: PowerRails.cpp.i
@@ -419,6 +445,7 @@ PowerRails.i: PowerRails.cpp.i
 # target to preprocess a source file
 PowerRails.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/PowerRails.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/PowerRails.cpp.i
 .PHONY : PowerRails.cpp.i
 
 PowerRails.s: PowerRails.cpp.s
@@ -427,6 +454,7 @@ PowerRails.s: PowerRails.cpp.s
 # target to generate assembly for a file
 PowerRails.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/PowerRails.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/PowerRails.cpp.s
 .PHONY : PowerRails.cpp.s
 
 Simulator.o: Simulator.cpp.o
@@ -435,6 +463,7 @@ Simulator.o: Simulator.cpp.o
 # target to build an object file
 Simulator.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Simulator.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Simulator.cpp.o
 .PHONY : Simulator.cpp.o
 
 Simulator.i: Simulator.cpp.i
@@ -443,6 +472,7 @@ Simulator.i: Simulator.cpp.i
 # target to preprocess a source file
 Simulator.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Simulator.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Simulator.cpp.i
 .PHONY : Simulator.cpp.i
 
 Simulator.s: Simulator.cpp.s
@@ -451,6 +481,7 @@ Simulator.s: Simulator.cpp.s
 # target to generate assembly for a file
 Simulator.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/Simulator.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/Simulator.cpp.s
 .PHONY : Simulator.cpp.s
 
 TimingWheel.o: TimingWheel.cpp.o
@@ -459,6 +490,7 @@ TimingWheel.o: TimingWheel.cpp.o
 # target to build an object file
 TimingWheel.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/TimingWheel.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/TimingWheel.cpp.o
 .PHONY : TimingWheel.cpp.o
 
 TimingWheel.i: TimingWheel.cpp.i
@@ -467,6 +499,7 @@ TimingWheel.i: TimingWheel.cpp.i
 # target to preprocess a source file
 TimingWheel.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/TimingWheel.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/TimingWheel.cpp.i
 .PHONY : TimingWheel.cpp.i
 
 TimingWheel.s: TimingWheel.cpp.s
@@ -475,6 +508,7 @@ TimingWheel.s: TimingWheel.cpp.s
 # target to generate assembly for a file
 TimingWheel.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/TimingWheel.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/TimingWheel.cpp.s
 .PHONY : TimingWheel.cpp.s
 
 _deps/imgui-src/backends/imgui_impl_glfw.o: _deps/imgui-src/backends/imgui_impl_glfw.cpp.o
@@ -645,6 +679,30 @@ main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LogicSim.dir/build.make CMakeFiles/LogicSim.dir/main.cpp.s
 .PHONY : main.cpp.s
 
+tests/latch_hold_test.o: tests/latch_hold_test.cpp.o
+.PHONY : tests/latch_hold_test.o
+
+# target to build an object file
+tests/latch_hold_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/tests/latch_hold_test.cpp.o
+.PHONY : tests/latch_hold_test.cpp.o
+
+tests/latch_hold_test.i: tests/latch_hold_test.cpp.i
+.PHONY : tests/latch_hold_test.i
+
+# target to preprocess a source file
+tests/latch_hold_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/tests/latch_hold_test.cpp.i
+.PHONY : tests/latch_hold_test.cpp.i
+
+tests/latch_hold_test.s: tests/latch_hold_test.cpp.s
+.PHONY : tests/latch_hold_test.s
+
+# target to generate assembly for a file
+tests/latch_hold_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/latch_hold_test.dir/build.make CMakeFiles/latch_hold_test.dir/tests/latch_hold_test.cpp.s
+.PHONY : tests/latch_hold_test.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -661,6 +719,7 @@ help:
 	@echo "... update_mappings"
 	@echo "... LogicSim"
 	@echo "... glfw"
+	@echo "... latch_hold_test"
 	@echo "... App.o"
 	@echo "... App.i"
 	@echo "... App.s"
@@ -715,6 +774,9 @@ help:
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
+	@echo "... tests/latch_hold_test.o"
+	@echo "... tests/latch_hold_test.i"
+	@echo "... tests/latch_hold_test.s"
 .PHONY : help
 
 
