@@ -152,6 +152,20 @@ RGBDisplay* findRgbDisplayById(const Canvas& canvas, int compId)
     return nullptr;
 }
 
+RGBDisplay* findScreenPixelRgb(const Canvas& canvas, const ScreenPixelDef& px)
+{
+    if (px.hostCompId < 0)
+        return findRgbDisplayById(canvas, px.internalCompId);
+
+    for (const auto& cv : canvas.getComps()) {
+        if (cv.id != px.hostCompId || !cv.comp) continue;
+        if (auto* cc = dynamic_cast<CustomComponent*>(cv.comp.get()))
+            return cc->findInternalRgbDisplay(px.internalCompId);
+        return nullptr;
+    }
+    return nullptr;
+}
+
 void drawPreviewScreen(ImDrawList* dl, ImVec2 boxMin, ImVec2 boxSize, const ScreenDef& screen,
                        const Canvas& canvas)
 {
@@ -173,7 +187,7 @@ void drawPreviewScreen(ImDrawList* dl, ImVec2 boxMin, ImVec2 boxSize, const Scre
     float gap = 0.5f;
 
     for (const auto& px : screen.pixels) {
-        auto* rgb = findRgbDisplayById(canvas, px.internalCompId);
+        auto* rgb = findScreenPixelRgb(canvas, px);
         if (!rgb) continue;
         ImVec2 pTL = {
             scrTL.x + px.col * cellW + gap,
@@ -717,7 +731,7 @@ void App::renderMenuBar()
                 }
             };
             auto refreshScreenFromCanvas = [&]() {
-                if (auto detected = detectScreenFromCanvas(canvas)) {
+                if (auto detected = detectScreenFromCanvas(canvas, canvas.customDefs)) {
                     saveScreen = detected.value();
                     saveHasScreen = true;
                 } else {

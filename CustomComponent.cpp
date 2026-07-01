@@ -42,6 +42,13 @@ const ResolvedScreen* CustomComponent::getResolvedScreen() const
     return resolvedScreen.has_value() ? &resolvedScreen.value() : nullptr;
 }
 
+RGBDisplay* CustomComponent::findInternalRgbDisplay(int internalCompId) const
+{
+    auto it = internalCompMap.find(internalCompId);
+    if (it == internalCompMap.end()) return nullptr;
+    return dynamic_cast<RGBDisplay*>(it->second);
+}
+
 void CustomComponent::registerInternals(Simulator* sim,
                                        const std::unordered_map<std::string, CustomComponentDef>& customDefs)
 {
@@ -59,10 +66,10 @@ void CustomComponent::registerInternals(Simulator* sim,
     tempCanvas.deserialize(def.canvasJson, Canvas::DeserializeMode::RestoreInternalOnly);
 
     // Steal all the instantiated components
-    std::unordered_map<int, Component*> compMap;
+    internalCompMap.clear();
     for (auto& cv : tempCanvas.comps) {
         if (!cv.comp) continue;
-        compMap[cv.id] = cv.comp.get();
+        internalCompMap[cv.id] = cv.comp.get();
         internalComps.push_back(std::move(cv.comp));
     }
     
@@ -86,9 +93,18 @@ void CustomComponent::registerInternals(Simulator* sim,
         ResolvedScreen rs;
         rs.layout = def.screen.value();
         for (const auto& pd : def.screen->pixels) {
-            auto it = compMap.find(pd.internalCompId);
-            if (it == compMap.end()) continue;
-            auto* rgb = dynamic_cast<RGBDisplay*>(it->second);
+            RGBDisplay* rgb = nullptr;
+            if (pd.hostCompId >= 0) {
+                auto hostIt = internalCompMap.find(pd.hostCompId);
+                if (hostIt != internalCompMap.end()) {
+                    if (auto* host = dynamic_cast<CustomComponent*>(hostIt->second))
+                        rgb = host->findInternalRgbDisplay(pd.internalCompId);
+                }
+            } else {
+                auto it = internalCompMap.find(pd.internalCompId);
+                if (it != internalCompMap.end())
+                    rgb = dynamic_cast<RGBDisplay*>(it->second);
+            }
             if (!rgb) continue;
             rs.pixels.push_back({rgb, pd.col, pd.row});
         }
@@ -101,14 +117,14 @@ void CustomComponent::registerInternals(Simulator* sim,
     this->drivers.clear();
 
     for (const auto& pDef : def.inPorts) {
-        if (auto* c = compMap[pDef.internalCompId]) {
+        if (auto* c = internalCompMap[pDef.internalCompId]) {
             for (int i=0; i<c->numReceivers(); ++i) {
                 this->receivers.push_back(c->getReceiver(i));
             }
         }
     }
     for (const auto& pDef : def.outPorts) {
-        if (auto* c = compMap[pDef.internalCompId]) {
+        if (auto* c = internalCompMap[pDef.internalCompId]) {
             for (int i=0; i<c->numDrivers(); ++i) {
                 this->drivers.push_back(c->getDriver(i));
             }
@@ -130,5 +146,6 @@ void CustomComponent::unregisterInternals(Simulator* sim)
     }
     rawInternalNets.clear();
     internalComps.clear();
+    internalCompMap.clear();
     resolvedScreen.reset();
 }
