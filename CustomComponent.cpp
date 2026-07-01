@@ -49,6 +49,34 @@ RGBDisplay* CustomComponent::findInternalRgbDisplay(int internalCompId) const
     return dynamic_cast<RGBDisplay*>(it->second);
 }
 
+Component* CustomComponent::findInternalComponent(int internalCompId) const
+{
+    auto it = internalCompMap.find(internalCompId);
+    return it != internalCompMap.end() ? it->second : nullptr;
+}
+
+RGBDisplay* CustomComponent::resolveInternalScreenPixel(const ScreenPixelDef& pd) const
+{
+    if (pd.hostCompId < 0)
+        return findInternalRgbDisplay(pd.internalCompId);
+
+    Component* host = findInternalComponent(pd.hostCompId);
+    if (!host) return nullptr;
+
+    if (pd.nestedHostCompId >= 0) {
+        auto* hostCc = dynamic_cast<CustomComponent*>(host);
+        if (!hostCc) return nullptr;
+        ScreenPixelDef inner;
+        inner.internalCompId = pd.internalCompId;
+        inner.hostCompId = pd.nestedHostCompId;
+        return hostCc->resolveInternalScreenPixel(inner);
+    }
+
+    if (auto* hostCc = dynamic_cast<CustomComponent*>(host))
+        return hostCc->findInternalRgbDisplay(pd.internalCompId);
+    return dynamic_cast<RGBDisplay*>(host);
+}
+
 void CustomComponent::registerInternals(Simulator* sim,
                                        const std::unordered_map<std::string, CustomComponentDef>& customDefs)
 {
@@ -93,18 +121,7 @@ void CustomComponent::registerInternals(Simulator* sim,
         ResolvedScreen rs;
         rs.layout = def.screen.value();
         for (const auto& pd : def.screen->pixels) {
-            RGBDisplay* rgb = nullptr;
-            if (pd.hostCompId >= 0) {
-                auto hostIt = internalCompMap.find(pd.hostCompId);
-                if (hostIt != internalCompMap.end()) {
-                    if (auto* host = dynamic_cast<CustomComponent*>(hostIt->second))
-                        rgb = host->findInternalRgbDisplay(pd.internalCompId);
-                }
-            } else {
-                auto it = internalCompMap.find(pd.internalCompId);
-                if (it != internalCompMap.end())
-                    rgb = dynamic_cast<RGBDisplay*>(it->second);
-            }
+            RGBDisplay* rgb = resolveInternalScreenPixel(pd);
             if (!rgb) continue;
             rs.pixels.push_back({rgb, pd.col, pd.row});
         }

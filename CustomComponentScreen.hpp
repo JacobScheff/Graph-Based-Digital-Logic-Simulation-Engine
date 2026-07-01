@@ -15,6 +15,7 @@ inline std::optional<ScreenDef> detectScreenFromCanvas(
         int internalCompId = -1;
         int col = 0;
         int row = 0;
+        int innerHostCompId = -1;
     };
 
     struct ScreenBlock {
@@ -60,7 +61,7 @@ inline std::optional<ScreenDef> detectScreenFromCanvas(
         block.rows = std::max(1, inner.rows);
         block.nested = true;
         for (const auto& px : inner.pixels) {
-            block.pixels.push_back({px.internalCompId, px.col, px.row});
+            block.pixels.push_back({px.internalCompId, px.col, px.row, px.hostCompId});
         }
         blocks.push_back(std::move(block));
     }
@@ -118,6 +119,7 @@ inline std::optional<ScreenDef> detectScreenFromCanvas(
                 pixel.row = rowBase + local.row;
                 pixel.internalCompId = local.internalCompId;
                 pixel.hostCompId = block.nested ? block.compId : -1;
+                pixel.nestedHostCompId = local.innerHostCompId;
                 screen.pixels.push_back(pixel);
             }
             colBase += block.cols;
