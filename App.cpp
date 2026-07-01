@@ -159,8 +159,12 @@ RGBDisplay* findScreenPixelRgb(const Canvas& canvas, const ScreenPixelDef& px)
 
     for (const auto& cv : canvas.getComps()) {
         if (cv.id != px.hostCompId || !cv.comp) continue;
-        if (auto* cc = dynamic_cast<CustomComponent*>(cv.comp.get()))
-            return cc->findInternalRgbDisplay(px.internalCompId);
+        if (auto* cc = dynamic_cast<CustomComponent*>(cv.comp.get())) {
+            ScreenPixelDef inner;
+            inner.internalCompId = px.internalCompId;
+            inner.hostCompId = px.nestedHostCompId;
+            return cc->resolveInternalScreenPixel(inner);
+        }
         return nullptr;
     }
     return nullptr;
