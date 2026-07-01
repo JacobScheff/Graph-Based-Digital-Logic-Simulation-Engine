@@ -990,6 +990,185 @@ void Canvas::completeWire(const Endpoint& srcIn, const Endpoint& dstIn, int busW
 
 // ─── Wire/Junction Removal ────────────────────────────────────────────────────
 
+Net* Canvas::resolveEndpointNet(const Endpoint& ep) const
+{
+    switch (ep.kind) {
+    case EndpointKind::Rail:
+        return ep.railIsVdd ? sim->getVddNet() : sim->getGndNet();
+    case EndpointKind::Junction: {
+        if (auto* j = findJunction(ep.junctionId))
+            return j->net;
+        return nullptr;
+    }
+    case EndpointKind::Component: {
+        if (auto* cv = findComp(ep.compId)) {
+            if (ep.pinIdx >= 0 && ep.pinIdx < cv->comp->numDrivers()) {
+                if (auto* d = cv->comp->getDriver(ep.pinIdx))
+                    if (d->isConnected()) return d->getNet();
+            }
+            if (ep.pinIdx >= 0 && ep.pinIdx < cv->comp->numReceivers()) {
+                if (auto* r = cv->comp->getReceiver(ep.pinIdx))
+                    if (r->isConnected()) return r->getNet();
+            }
+        }
+        return nullptr;
+    }
+    }
+    return nullptr;
+}
+
+bool Canvas::isComponentPinUsedByOtherWire(int wireId, int compId, int pinIdx, bool isDriverPin) const
+{
+    for (const auto& w : wires) {
+        if (w.id == wireId) continue;
+
+        auto usesPin = [&](const Endpoint& ep) {
+            if (ep.kind != EndpointKind::Component || ep.compId != compId) return false;
+            int count = w.busWidth <= 1 ? 1 : w.busWidth;
+            for (int i = 0; i < count; ++i) {
+                if (ep.pinIdx + i == pinIdx) return true;
+            }
+            return false;
+        };
+
+        if (isDriverPin && usesPin(w.src)) return true;
+        if (!isDriverPin && usesPin(w.dst)) return true;
+    }
+    return false;
+}
+
+void Canvas::disconnectWireEndpoints(int wireId, const WireView& wv)
+{
+    auto tryDisconnect = [&](const Endpoint& ep, bool driverSide) {
+        if (ep.kind != EndpointKind::Component) return;
+        auto* cv = findComp(ep.compId);
+        if (!cv) return;
+
+        int count = wv.busWidth <= 1 ? 1 : wv.busWidth;
+        for (int i = 0; i < count; ++i) {
+            int pinIdx = ep.pinIdx + i;
+            if (driverSide) {
+                if (isComponentPinUsedByOtherWire(wireId, ep.compId, pinIdx, true)) continue;
+                if (pinIdx >= 0 && pinIdx < cv->comp->numDrivers()) {
+                    if (auto* d = cv->comp->getDriver(pinIdx))
+                        sim->disconnectDriver(d);
+                }
+            } else {
+                if (isComponentPinUsedByOtherWire(wireId, ep.compId, pinIdx, false)) continue;
+                if (pinIdx >= 0 && pinIdx < cv->comp->numReceivers()) {
+                    sim->disconnectReceiver(cv->comp->getReceiver(pinIdx));
+                }
+            }
+        }
+    };
+
+    tryDisconnect(wv.src, true);
+    tryDisconnect(wv.dst, false);
+}
+
+void Canvas::cleanupEmptyNets()
+{
+    std::vector<Net*> toDelete;
+    for (Net* net : sim->getNets()) {
+        if (net == sim->getVddNet() || net == sim->getGndNet()) continue;
+        if (net->getDrivers().empty() && net->getReceivers().empty())
+            toDelete.push_back(net);
+    }
+    for (Net* net : toDelete)
+        sim->removeNet(net);
+}
+
+void Canvas::syncWireNet(WireView& wv)
+{
+    if (wv.busWidth > 1 && wv.src.kind == EndpointKind::Component
+        && wv.dst.kind == EndpointKind::Component) {
+        wv.busNets.clear();
+        auto* srcCv = findComp(wv.src.compId);
+        auto* dstCv = findComp(wv.dst.compId);
+        if (srcCv && dstCv) {
+            for (int i = 0; i < wv.busWidth; ++i) {
+                Net* n = nullptr;
+                if (auto* d = srcCv->comp->getDriver(wv.src.pinIdx + i))
+                    if (d->isConnected()) n = d->getNet();
+                if (!n) {
+                    if (auto* r = dstCv->comp->getReceiver(wv.dst.pinIdx + i))
+                        if (r->isConnected()) n = r->getNet();
+                }
+                if (n) wv.busNets.push_back(n);
+            }
+        }
+        wv.net = wv.busNets.empty() ? nullptr : wv.busNets[0];
+        return;
+    }
+
+    Net* srcNet = resolveEndpointNet(wv.src);
+    Net* dstNet = resolveEndpointNet(wv.dst);
+    wv.net = srcNet ? srcNet : dstNet;
+}
+
+void Canvas::syncJunctionNets()
+{
+    for (auto& j : junctions)
+        j.net = nullptr;
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (const auto& wv : wires) {
+            if (!wv.net) continue;
+            if (wv.src.kind == EndpointKind::Junction) {
+                if (auto* j = findJunction(wv.src.junctionId)) {
+                    if (!j->net) { j->net = wv.net; changed = true; }
+                }
+            }
+            if (wv.dst.kind == EndpointKind::Junction) {
+                if (auto* j = findJunction(wv.dst.junctionId)) {
+                    if (!j->net) { j->net = wv.net; changed = true; }
+                }
+            }
+        }
+        for (auto& wv : wires) {
+            if (wv.net) continue;
+            Net* n = resolveEndpointNet(wv.src);
+            if (!n) n = resolveEndpointNet(wv.dst);
+            if (n) { wv.net = n; changed = true; }
+        }
+        for (auto& wv : wires) {
+            if (wv.net) continue;
+            if (wv.src.kind == EndpointKind::Junction) {
+                if (auto* j = findJunction(wv.src.junctionId); j && j->net) {
+                    wv.net = j->net; changed = true;
+                }
+            }
+            if (!wv.net && wv.dst.kind == EndpointKind::Junction) {
+                if (auto* j = findJunction(wv.dst.junctionId); j && j->net) {
+                    wv.net = j->net; changed = true;
+                }
+            }
+        }
+    }
+}
+
+void Canvas::syncAllWireNets()
+{
+    for (auto& wv : wires)
+        syncWireNet(wv);
+    syncJunctionNets();
+}
+
+void Canvas::removeWiresAtJunction(int junctionId)
+{
+    std::vector<int> toRemove;
+    for (const auto& wv : wires) {
+        if ((wv.src.kind == EndpointKind::Junction && wv.src.junctionId == junctionId) ||
+            (wv.dst.kind == EndpointKind::Junction && wv.dst.junctionId == junctionId)) {
+            toRemove.push_back(wv.id);
+        }
+    }
+    for (int id : toRemove)
+        removeWire(id);
+}
+
 void Canvas::removeWiresOf(int compId)
 {
     std::vector<int> toRemove;
@@ -1009,61 +1188,13 @@ void Canvas::removeWire(int wireId)
 {
     auto it = std::find_if(wires.begin(), wires.end(),
                            [&](const WireView& w){ return w.id == wireId; });
-    if (it != wires.end()) {
-        const auto& wv = *it;
-        if (wv.src.kind == EndpointKind::Component) {
-            if (auto* cv = findComp(wv.src.compId)) {
-                if (wv.busWidth <= 1) {
-                    if (auto* d = cv->comp->getDriver(wv.src.pinIdx))
-                        sim->disconnectDriver(d);
-                } else {
-                    for (int i = 0; i < wv.busWidth; ++i)
-                        sim->disconnectDriver(cv->comp->getDriver(wv.src.pinIdx + i));
-                }
-            }
-        }
-        if (wv.dst.kind == EndpointKind::Component) {
-            if (auto* cv = findComp(wv.dst.compId)) {
-                if (wv.busWidth <= 1) {
-                    sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
-                } else {
-                    for (int i = 0; i < wv.busWidth; ++i)
-                        sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx + i));
-                }
-            }
-        }
-        if (wv.net && wv.net != sim->getVddNet() && wv.net != sim->getGndNet()) {
-            if (wv.net->getDrivers().empty() && wv.net->getReceivers().empty()) {
-                Net* netToDelete = wv.net;
-                sim->removeNet(netToDelete);
-                for (auto& w : wires) {
-                    if (w.net == netToDelete) w.net = nullptr;
-                    for (auto& bn : w.busNets) {
-                        if (bn == netToDelete) bn = nullptr;
-                    }
-                }
-                for (auto& j : junctions) {
-                    if (j.net == netToDelete) j.net = nullptr;
-                }
-            }
-        }
-        for (Net* bn : wv.busNets) {
-            if (bn && bn != sim->getVddNet() && bn != sim->getGndNet()
-                && bn->getDrivers().empty() && bn->getReceivers().empty()) {
-                sim->removeNet(bn);
-                for (auto& w : wires) {
-                    if (w.net == bn) w.net = nullptr;
-                    for (auto& bnn : w.busNets) {
-                        if (bnn == bn) bnn = nullptr;
-                    }
-                }
-                for (auto& j : junctions) {
-                    if (j.net == bn) j.net = nullptr;
-                }
-            }
-        }
-        wires.erase(it);
-    }
+    if (it == wires.end()) return;
+
+    const WireView wv = *it;
+    disconnectWireEndpoints(wireId, wv);
+    wires.erase(it);
+    cleanupEmptyNets();
+    syncAllWireNets();
 }
 
 void Canvas::removeJunction(int junctionId)
@@ -1156,54 +1287,8 @@ void Canvas::deleteSelected()
     }
 
     for (int jId : junctionsToDelete) {
+        removeWiresAtJunction(jId);
         removeJunction(jId);
-    }
-
-    if (!junctionsToDelete.empty()) {
-        std::vector<WireView> remainingWires;
-        for (auto& wv : wires) {
-            bool touchesDeletedJunction = 
-                (wv.src.kind == EndpointKind::Junction && std::find(junctionsToDelete.begin(), junctionsToDelete.end(), wv.src.junctionId) != junctionsToDelete.end()) ||
-                (wv.dst.kind == EndpointKind::Junction && std::find(junctionsToDelete.begin(), junctionsToDelete.end(), wv.dst.junctionId) != junctionsToDelete.end());
-            if (touchesDeletedJunction) {
-                if (wv.src.kind == EndpointKind::Component) {
-                    if (auto* cv = findComp(wv.src.compId)) {
-                        if (wv.busWidth <= 1) {
-                            if (auto* d = cv->comp->getDriver(wv.src.pinIdx)) sim->disconnectDriver(d);
-                        } else {
-                            for (int i = 0; i < wv.busWidth; ++i) sim->disconnectDriver(cv->comp->getDriver(wv.src.pinIdx + i));
-                        }
-                    }
-                }
-                if (wv.dst.kind == EndpointKind::Component) {
-                    if (auto* cv = findComp(wv.dst.compId)) {
-                        if (wv.busWidth <= 1) {
-                            sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
-                        } else {
-                            for (int i = 0; i < wv.busWidth; ++i) sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx + i));
-                        }
-                    }
-                }
-                if (wv.net && wv.net != sim->getVddNet() && wv.net != sim->getGndNet()) {
-                    if (wv.net->getDrivers().empty() && wv.net->getReceivers().empty()) {
-                        Net* netToDelete = wv.net;
-                        sim->removeNet(netToDelete);
-                        for (auto& w : wires) {
-                            if (w.net == netToDelete) w.net = nullptr;
-                            for (auto& bn : w.busNets) {
-                                if (bn == netToDelete) bn = nullptr;
-                            }
-                        }
-                        for (auto& j : junctions) {
-                            if (j.net == netToDelete) j.net = nullptr;
-                        }
-                    }
-                }
-            } else {
-                remainingWires.push_back(std::move(wv));
-            }
-        }
-        wires = std::move(remainingWires);
     }
 
     cleanupDanglingJunctions();
@@ -2986,36 +3071,8 @@ void Canvas::render()
             ImGui::Text("Junction");
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Junction")) {
+                removeWiresAtJunction(rightClickedJunctionId);
                 removeJunction(rightClickedJunctionId);
-                std::vector<WireView> remainingWires;
-                for (auto& wv : wires) {
-                    bool touchesJunction = 
-                        (wv.src.kind == EndpointKind::Junction && wv.src.junctionId == rightClickedJunctionId) ||
-                        (wv.dst.kind == EndpointKind::Junction && wv.dst.junctionId == rightClickedJunctionId);
-                    if (touchesJunction) {
-                        if (wv.src.kind == EndpointKind::Component) {
-                            if (auto* cv = findComp(wv.src.compId)) {
-                                if (wv.busWidth <= 1) {
-                                    if (auto* d = cv->comp->getDriver(wv.src.pinIdx)) sim->disconnectDriver(d);
-                                } else {
-                                    for (int i = 0; i < wv.busWidth; ++i) sim->disconnectDriver(cv->comp->getDriver(wv.src.pinIdx + i));
-                                }
-                            }
-                        }
-                        if (wv.dst.kind == EndpointKind::Component) {
-                            if (auto* cv = findComp(wv.dst.compId)) {
-                                if (wv.busWidth <= 1) {
-                                    sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx));
-                                } else {
-                                    for (int i = 0; i < wv.busWidth; ++i) sim->disconnectReceiver(cv->comp->getReceiver(wv.dst.pinIdx + i));
-                                }
-                            }
-                        }
-                    } else {
-                        remainingWires.push_back(std::move(wv));
-                    }
-                }
-                wires = std::move(remainingWires);
                 cleanupDanglingJunctions();
                 sim->settle();
             }

@@ -242,8 +242,17 @@ private:
     void removeWiresOf(int compId);
     void removeWire(int wireId);
     void removeJunction(int junctionId);
+    void removeWiresAtJunction(int junctionId);
     void insertJunctionOnWire(int wireId, ImVec2 worldPos);
     void cleanupDanglingJunctions();
+
+    Net* resolveEndpointNet(const Endpoint& ep) const;
+    bool isComponentPinUsedByOtherWire(int wireId, int compId, int pinIdx, bool isDriverPin) const;
+    void disconnectWireEndpoints(int wireId, const WireView& wv);
+    void cleanupEmptyNets();
+    void syncWireNet(WireView& wv);
+    void syncJunctionNets();
+    void syncAllWireNets();
 
     bool tryHandleComponentClick(int compId, bool mouseDown, bool mouseUp);
     void handleScrollOnComponent(int compId, float scroll);
