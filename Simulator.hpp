@@ -82,14 +82,23 @@ private:
     static bool hasDefinedState(const std::unordered_map<Driver*, State>& states);
     void applyHeldDriverStates();
     void seedXorFeedbackPair();
+    void seedSingleXorFeedbackPair(Component* x0, Component* x1);
     bool hasFloatingXorOutputs() const;
     void updateHeldDriverStates();
-    bool hasDefinedXorFeedbackIn(const std::unordered_map<Driver*, State>& source) const;
+    bool pairHasDefinedFeedbackIn(Component* x0, Component* x1,
+                                  const std::unordered_map<Driver*, State>& source) const;
     void restoreXorFeedbackStates(const std::unordered_map<Driver*, State>& source);
+    void restoreXorFeedbackPair(Component* x0, Component* x1,
+                                const std::unordered_map<Driver*, State>& source);
     void resolveFloatingXorFeedback();
     void applyTransparentXorLoad();
+    void applyTransparentXorLoadPair(Component* x0, Component* x1);
     bool isXnorFeedbackReceiver(Receiver* r) const;
     Receiver* findXnorFeedInReceiver(Component* xnor) const;
+    Receiver* findXnorFeedbackReceiver(Component* xnor) const;
+    Component* findXnorDrivingReceiver(Receiver* r) const;
+    std::vector<std::pair<Component*, Component*>> findXnorFeedbackPairs() const;
+    static bool isDefinedState(State state);
 
     bool combinatorialSettling = false;
     std::unordered_map<Net*, State>    settlingNetSnapshot;
