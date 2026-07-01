@@ -40,10 +40,13 @@ This project uses CMake to handle dependencies via `FetchContent` and generate b
 
 2. Create a build directory and build the executable:
    ```bash
-   mkdir build
+   mkdir -p build
    cd build
    make
    ```
+
+   The first `make` run configures CMake automatically via `build/GNUmakefile`.
+   Requires CMake 3.14+ and OpenGL development libraries on WSL/Linux.
 
 ## Usage
 

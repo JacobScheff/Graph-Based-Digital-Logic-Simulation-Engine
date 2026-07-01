@@ -1,3 +1,4 @@
 main
 *.o
-build/
+build/*
+!build/GNUmakefile
