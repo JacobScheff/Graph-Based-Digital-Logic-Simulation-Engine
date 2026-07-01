@@ -101,9 +101,16 @@ void Simulator::removeNet(Net* net)
 {
     if (net == vddNet || net == gndNet) return;
 
+    settlingNetSnapshot.erase(net);
+
     auto drivers   = net->getDrivers();
     auto receivers = net->getReceivers();
-    for (Driver*   d : drivers)   d->disconnect();
+    for (Driver* d : drivers) {
+        heldDriverStates.erase(d);
+        pendingDriverStates.erase(d);
+        settleEpochStart.erase(d);
+        d->disconnect();
+    }
     for (Receiver* r : receivers) r->disconnect();
 
     nets.erase(std::remove(nets.begin(), nets.end(), net), nets.end());
