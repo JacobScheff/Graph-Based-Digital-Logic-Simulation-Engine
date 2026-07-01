@@ -179,6 +179,7 @@ private:
     ImVec2 w2s(ImVec2 world, ImVec2 origin) const;
     ImVec2 s2w(ImVec2 screen, ImVec2 origin) const;
     ImVec2 snapToGrid(ImVec2 w) const;
+    int    gridStride() const;
 
     // Pin positioning (now reads from PinLayout)
     ImVec2 pinWorldPos(const ComponentView& cv, const PinLayout& pl, bool isEdge) const;

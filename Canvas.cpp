@@ -175,6 +175,14 @@ ImVec2 Canvas::snapToGrid(ImVec2 w) const
              std::round(w.y / SNAP) * SNAP };
 }
 
+int Canvas::gridStride() const
+{
+    // Power-of-two stride anchored to world origin: each 2x zoom hides half the points.
+    float ref = zoom >= 1.f ? zoom : 1.f / zoom;
+    int level = (int)std::floor(std::log2(ref));
+    return 1 << std::max(0, level);
+}
+
 float Canvas::railScreenY(bool vdd, ImVec2 origin) const
 {
     return vdd ? origin.y + RAIL_BAND * 0.5f : origin.y;
@@ -1617,23 +1625,29 @@ std::vector<ImVec2> Canvas::routeWire(ImVec2 src, ImVec2 dst,
 void Canvas::drawGrid(ImDrawList* dl, ImVec2 origin, ImVec2 size) const
 {
     ImVec2 wMin = s2w(origin, origin);
-    ImVec2 wMax = s2w({origin.x+size.x, origin.y+size.y}, origin);
+    ImVec2 wMax = s2w({origin.x + size.x, origin.y + size.y}, origin);
+
+    const int stride = gridStride();
+    const int mask = stride - 1;
+
+    const int iMin = (int)std::floor(wMin.x / GRID);
+    const int iMax = (int)std::ceil(wMax.x / GRID);
+    const int jMin = (int)std::floor(wMin.y / GRID);
+    const int jMax = (int)std::ceil(wMax.y / GRID);
 
     ImU32 col = IM_COL32(40, 40, 52, 100);
-    float gridStep = GRID;
-    bool drawCoarse = (zoom > 0.8f);
     ImU32 coarseCol = IM_COL32(50, 50, 65, 140);
+    const float dotR = 1.2f;
 
-    float startX = std::floor(wMin.x / gridStep) * gridStep;
-    float startY = std::floor(wMin.y / gridStep) * gridStep;
-
-    float dotR = std::max(0.8f, 1.0f * zoom);
-    for (float wx = startX; wx <= wMax.x; wx += gridStep) {
-        for (float wy = startY; wy <= wMax.y; wy += gridStep) {
+    for (int i = iMin; i <= iMax; ++i) {
+        if (i & mask) continue;
+        const float wx = i * GRID;
+        for (int j = jMin; j <= jMax; ++j) {
+            if (j & mask) continue;
+            const float wy = j * GRID;
             ImVec2 p = w2s({wx, wy}, origin);
-            bool isCoarse = (std::fabs(std::fmod(wx, GRID * 5.f)) < 0.1f &&
-                             std::fabs(std::fmod(wy, GRID * 5.f)) < 0.1f);
-            if (drawCoarse && isCoarse) {
+            const bool isMajor = (i % 5 == 0 && j % 5 == 0);
+            if (isMajor) {
                 dl->AddCircleFilled(p, dotR * 1.8f, coarseCol);
             } else {
                 dl->AddCircleFilled(p, dotR, col);
