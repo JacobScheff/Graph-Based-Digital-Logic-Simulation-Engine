@@ -6,6 +6,7 @@
 #include "State.hpp"
 #include "PowerRails.hpp"
 #include <algorithm>
+#include <unordered_set>
 
 Simulator::Simulator()
 {
@@ -203,6 +204,63 @@ Receiver* Simulator::findXnorFeedInReceiver(Component* xnor) const
     return nullptr;
 }
 
+Receiver* Simulator::findXnorFeedbackReceiver(Component* xnor) const
+{
+    for (int i = 0; i < xnor->numReceivers(); ++i) {
+        Receiver* r = xnor->getReceiver(i);
+        if (r && isXnorFeedbackReceiver(r)) return r;
+    }
+    return nullptr;
+}
+
+Component* Simulator::findXnorDrivingReceiver(Receiver* r) const
+{
+    Net* n = r ? r->getNet() : nullptr;
+    if (!n) return nullptr;
+    for (Driver* d : n->getDrivers()) {
+        for (Component* c : components) {
+            if (c->getName() != "XNOR") continue;
+            for (int i = 0; i < c->numDrivers(); ++i) {
+                if (c->getDriver(i) == d) return c;
+            }
+        }
+    }
+    return nullptr;
+}
+
+std::vector<std::pair<Component*, Component*>> Simulator::findXnorFeedbackPairs() const
+{
+    std::vector<std::pair<Component*, Component*>> pairs;
+    std::unordered_set<Component*> used;
+
+    for (Component* c : components) {
+        if (c->getName() != "XNOR") continue;
+        if (used.count(c)) continue;
+
+        Receiver* fb = findXnorFeedbackReceiver(c);
+        if (!fb) continue;
+
+        Component* partner = findXnorDrivingReceiver(fb);
+        if (!partner || partner == c) continue;
+
+        Receiver* partnerFb = findXnorFeedbackReceiver(partner);
+        if (!partnerFb) continue;
+
+        if (findXnorDrivingReceiver(partnerFb) != c) continue;
+
+        pairs.push_back({c, partner});
+        used.insert(c);
+        used.insert(partner);
+    }
+
+    return pairs;
+}
+
+bool Simulator::isDefinedState(State state)
+{
+    return state != State::FLOATING && state != State::UNDEFINED;
+}
+
 // ─── Settle ───────────────────────────────────────────────────────────────────
 void Simulator::settle(int maxTicks)
 {
@@ -326,99 +384,113 @@ void Simulator::applyHeldDriverStates()
     }
 }
 
-bool Simulator::hasDefinedXorFeedbackIn(
+bool Simulator::pairHasDefinedFeedbackIn(
+    Component* x0, Component* x1,
     const std::unordered_map<Driver*, State>& source) const
 {
-    int defined = 0;
-    for (Component* c : components) {
-        if (c->getName() != "XNOR") continue;
-        if (Driver* d = c->getDriver(0)) {
-            auto it = source.find(d);
-            if (it != source.end() &&
-                it->second != State::FLOATING &&
-                it->second != State::UNDEFINED) {
-                ++defined;
-            }
-        }
-    }
-    return defined >= 2;
+    Driver* d0 = x0 ? x0->getDriver(0) : nullptr;
+    Driver* d1 = x1 ? x1->getDriver(0) : nullptr;
+    if (!d0 || !d1) return false;
+
+    auto it0 = source.find(d0);
+    auto it1 = source.find(d1);
+    return it0 != source.end() && isDefinedState(it0->second) &&
+           it1 != source.end() && isDefinedState(it1->second);
 }
 
 void Simulator::restoreXorFeedbackStates(
     const std::unordered_map<Driver*, State>& source)
 {
-    for (Component* c : components) {
-        if (c->getName() != "XNOR") continue;
-        if (Driver* d = c->getDriver(0)) {
-            auto it = source.find(d);
-            if (it != source.end() &&
-                it->second != State::FLOATING &&
-                it->second != State::UNDEFINED &&
-                d->getState() != it->second) {
-                d->setState(it->second);
-            }
+    for (const auto& [x0, x1] : findXnorFeedbackPairs())
+        restoreXorFeedbackPair(x0, x1, source);
+}
+
+void Simulator::restoreXorFeedbackPair(
+    Component* x0, Component* x1,
+    const std::unordered_map<Driver*, State>& source)
+{
+    for (Component* xnor : {x0, x1}) {
+        if (!xnor) continue;
+        Driver* d = xnor->getDriver(0);
+        if (!d) continue;
+        auto it = source.find(d);
+        if (it != source.end() &&
+            isDefinedState(it->second) &&
+            d->getState() != it->second) {
+            d->setState(it->second);
         }
     }
 }
 
 void Simulator::resolveFloatingXorFeedback()
 {
-    if (hasDefinedXorFeedbackIn(heldDriverStates))
-        restoreXorFeedbackStates(heldDriverStates);
-    else if (hasDefinedXorFeedbackIn(settleEpochStart))
-        restoreXorFeedbackStates(settleEpochStart);
-    else
-        seedXorFeedbackPair();
+    for (const auto& [x0, x1] : findXnorFeedbackPairs()) {
+        Driver* d0 = x0->getDriver(0);
+        Driver* d1 = x1->getDriver(0);
+        if (!d0 || !d1) continue;
+
+        State s0 = d0->getState();
+        State s1 = d1->getState();
+        if (isDefinedState(s0) && isDefinedState(s1)) continue;
+
+        if (pairHasDefinedFeedbackIn(x0, x1, heldDriverStates))
+            restoreXorFeedbackPair(x0, x1, heldDriverStates);
+        else if (pairHasDefinedFeedbackIn(x0, x1, settleEpochStart))
+            restoreXorFeedbackPair(x0, x1, settleEpochStart);
+        else {
+            restoreXorFeedbackPair(x0, x1, heldDriverStates);
+            restoreXorFeedbackPair(x0, x1, settleEpochStart);
+            seedSingleXorFeedbackPair(x0, x1);
+        }
+    }
     updateHeldDriverStates();
 }
 
-void Simulator::seedXorFeedbackPair()
+void Simulator::seedSingleXorFeedbackPair(Component* x0, Component* x1)
 {
-    std::vector<Component*> xnors;
-    for (Component* c : components) {
-        if (c->getName() == "XNOR")
-            xnors.push_back(c);
-    }
-    if (xnors.size() < 2) return;
+    if (!x0 || !x1) return;
 
     auto pickState = [&](Component* xnor) -> State {
         if (!xnor) return State::FLOATING;
         Driver* d = xnor->getDriver(0);
         if (!d) return State::FLOATING;
 
+        if (isDefinedState(d->getState()))
+            return d->getState();
+
         auto held = heldDriverStates.find(d);
-        if (held != heldDriverStates.end() &&
-            held->second != State::FLOATING &&
-            held->second != State::UNDEFINED) {
+        if (held != heldDriverStates.end() && isDefinedState(held->second))
             return held->second;
-        }
 
         auto epoch = settleEpochStart.find(d);
-        if (epoch != settleEpochStart.end() &&
-            epoch->second != State::FLOATING &&
-            epoch->second != State::UNDEFINED) {
+        if (epoch != settleEpochStart.end() && isDefinedState(epoch->second))
             return epoch->second;
-        }
 
         return State::FLOATING;
     };
 
-    State s0 = pickState(xnors[0]);
-    State s1 = pickState(xnors[1]);
+    State s0 = pickState(x0);
+    State s1 = pickState(x1);
 
     if (s0 == State::FLOATING && s1 == State::FLOATING) {
-        s0 = driveTrue(*xnors[0]);
-        s1 = driveFalse(*xnors[1]);
+        s0 = driveTrue(*x0);
+        s1 = driveFalse(*x1);
     } else if (s0 != State::FLOATING && s1 == State::FLOATING) {
-        s1 = invertRail(s0, *xnors[1]);
+        s1 = invertRail(s0, *x1);
     } else if (s0 == State::FLOATING && s1 != State::FLOATING) {
-        s0 = invertRail(s1, *xnors[0]);
+        s0 = invertRail(s1, *x0);
     }
 
-    if (Driver* d0 = xnors[0]->getDriver(0))
+    if (Driver* d0 = x0->getDriver(0))
         d0->setState(s0);
-    if (Driver* d1 = xnors[1]->getDriver(0))
+    if (Driver* d1 = x1->getDriver(0))
         d1->setState(s1);
+}
+
+void Simulator::seedXorFeedbackPair()
+{
+    for (const auto& [x0, x1] : findXnorFeedbackPairs())
+        seedSingleXorFeedbackPair(x0, x1);
 }
 
 bool Simulator::hasFloatingXorOutputs() const
@@ -442,21 +514,9 @@ void Simulator::updateHeldDriverStates()
     }
 }
 
-// Correct XNOR outputs for transparent-load condition (Enable=1).
-// Uses topology detection to find the AND-side receiver (not feedback).
-// One XNOR sees its AND input HIGH, the other sees LOW → asymmetric drive
-// indicates which complementary state to force.
-void Simulator::applyTransparentXorLoad()
+void Simulator::applyTransparentXorLoadPair(Component* x0, Component* x1)
 {
-    std::vector<Component*> xnors;
-    for (Component* c : components) {
-        if (c->getName() == "XNOR")
-            xnors.push_back(c);
-    }
-    if (xnors.size() < 2) return;
-
-    Component* x0 = xnors[0];
-    Component* x1 = xnors[1];
+    if (!x0 || !x1) return;
 
     Receiver* feedIn0 = findXnorFeedInReceiver(x0);
     Receiver* feedIn1 = findXnorFeedInReceiver(x1);
@@ -468,7 +528,6 @@ void Simulator::applyTransparentXorLoad()
     bool in0high = readAsTrue(in0,  *x0), in0low = readAsFalse(in0,  *x0);
     bool in1high = readAsTrue(in1,  *x1), in1low = readAsFalse(in1,  *x1);
 
-    // Exactly one AND input is HIGH (transparent load): force complementary Q.
     Driver* d0 = x0->getDriver(0);
     Driver* d1 = x1->getDriver(0);
 
@@ -479,6 +538,16 @@ void Simulator::applyTransparentXorLoad()
         if (d0) d0->setState(driveTrue(*x0));
         if (d1) d1->setState(driveFalse(*x1));
     }
+}
+
+// Correct XNOR outputs for transparent-load condition (Enable=1).
+// Uses topology detection to find the AND-side receiver (not feedback).
+// One XNOR sees its AND input HIGH, the other sees LOW → asymmetric drive
+// indicates which complementary state to force.
+void Simulator::applyTransparentXorLoad()
+{
+    for (const auto& [x0, x1] : findXnorFeedbackPairs())
+        applyTransparentXorLoadPair(x0, x1);
     // Both low (hold mode) or both high (illegal): leave XNOR outputs alone.
 }
 
