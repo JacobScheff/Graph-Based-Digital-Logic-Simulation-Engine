@@ -24,6 +24,7 @@ struct ScreenPixelDef {
     int internalCompId = -1;
     int col = 0;
     int row = 0;
+    int hostCompId = -1; // canvas id of nested custom component (-1 = direct RGB_DISP)
 };
 
 struct ScreenDef {
@@ -67,6 +68,7 @@ inline std::optional<ScreenDef> screenDefFromJson(const nlohmann::json& j)
             p.internalCompId = jp.value("internalCompId", -1);
             p.col = jp.value("col", 0);
             p.row = jp.value("row", 0);
+            p.hostCompId = jp.value("hostCompId", -1);
             s.pixels.push_back(p);
         }
     }
@@ -88,6 +90,8 @@ inline nlohmann::json screenDefToJson(const ScreenDef& s)
         jp["internalCompId"] = p.internalCompId;
         jp["col"] = p.col;
         jp["row"] = p.row;
+        if (p.hostCompId >= 0)
+            jp["hostCompId"] = p.hostCompId;
         js["pixels"].push_back(jp);
     }
     return js;
@@ -115,6 +119,7 @@ public:
     
     const CustomComponentDef& getDef() const { return def; }
     const ResolvedScreen* getResolvedScreen() const;
+    RGBDisplay* findInternalRgbDisplay(int internalCompId) const;
 
     // When the canvas adds this custom component to the simulator, 
     // we need to register all internal components and nets instead!
@@ -130,5 +135,6 @@ private:
     // We instantiate our own internal components to flatten into the main simulator
     std::vector<std::unique_ptr<Component>> internalComps;
     std::vector<Net*> rawInternalNets;
+    std::unordered_map<int, Component*> internalCompMap;
     std::optional<ResolvedScreen> resolvedScreen;
 };
